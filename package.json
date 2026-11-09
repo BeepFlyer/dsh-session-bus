@@ -25,6 +25,31 @@
     "check:client": "node scripts/build-client.mjs --check"
   },
   "description": "Session bus: registered intent + matching + guarded delivery between DSH sessions and external processes.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BeepFlyer/dsh-session-bus.git"
+  },
+  "homepage": "https://github.com/BeepFlyer/dsh-session-bus#readme",
+  "bugs": {
+    "url": "https://github.com/BeepFlyer/dsh-session-bus/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "session",
+    "bus",
+    "message-bus",
+    "ipc",
+    "agent",
+    "webhook",
+    "delivery"
+  ],
+  "engines": {
+    "node": ">=20.0.0",
+    "dsh": ">=0.2.0"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
