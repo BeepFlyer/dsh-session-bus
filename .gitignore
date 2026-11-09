@@ -1,0 +1,22 @@
+# 本机凭证
+token.txt
+*.token
+.env
+
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 本机备份
+*.bak
+*.bak-*
+
+# 测试残留
+test/tmp/
+*.local.json
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

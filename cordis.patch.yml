@@ -1,0 +1,3 @@
+- insert:
+    - id: session-bus
+      name: 'dsh-session-bus'

@@ -1,0 +1,569 @@
+// Session bus · settings page (P1). Plain React (no JSX); talks to the Host admin API.
+
+const NS = 'session-bus';
+
+const ZH = {
+  'settings.title': '会话总线',
+  'settings.intro': '注册表、等待项、护栏与最近投递；改动即时生效。',
+  'settings.refresh': '刷新',
+  'settings.saved': '已保存',
+  'settings.failed': '操作失败',
+  'agents.title': '注册表',
+  'agents.hint': '登记过的会话可被外部事件与其它会话投递；停用只是置灰，不删除。',
+  'agents.new': '新建登记',
+  'agents.edit': '编辑',
+  'agents.delete': '删除',
+  'agents.disabled': '已停用',
+  'agents.enabled': '启用中',
+  'agents.waiting': '等待项',
+  'agents.empty': '还没有登记任何会话。',
+  'agents.name': '名字',
+  'agents.sessionId': '会话 ID',
+  'agents.role': '职责',
+  'agents.knows': '知道什么（逗号分隔）',
+  'agents.allowFrom': '可被谁唤醒（逗号分隔，owner / 会话 ID / *）',
+  'agents.subscriptions': '长期订阅（JSON 数组，可空）',
+  'agents.save': '保存',
+  'agents.cancel': '取消',
+  'agents.confirmDelete': '确定删除「{name}」吗？该会话的等待项也会一起删除。',
+  'waiting.title': '等待项',
+  'waiting.hint': '一次性等待，命中即删，到期自动清理。',
+  'waiting.empty': '当前没有等待项。',
+  'waiting.remaining': '剩余 {time}',
+  'waiting.expired': '已过期',
+  'waiting.remove': '移除',
+  'waiting.stale': '会话已归档（stale）',
+  'guard.title': '护栏',
+  'guard.hint': '限流与跳数上限；改动立即影响后续投递。',
+  'guard.maxHop': '最大跳数',
+  'guard.maxPerMinute': '每分钟最多投递',
+  'guard.minIntervalMs': '同一会话最小间隔（毫秒）',
+  'guard.defaultTtlSeconds': '默认等待 TTL（秒）',
+  'guard.hmacEnabled': '要求 HMAC 签名（外部 /signal）',
+  'guard.hmacSecret': 'HMAC 密钥（留空则用 token）',
+  'guard.save': '保存护栏',
+  'log.title': '最近投递（折叠）',
+  'log.empty': '还没有投递记录。',
+  'log.ok': '成功',
+  'log.fail': '失败',
+  'error.load': '加载失败：{message}',
+  'error.network': '请求失败：{message}'
+};
+
+const EN = {
+  'settings.title': 'Session bus',
+  'settings.intro': 'Registry, waits, guardrails and recent deliveries; changes apply immediately.',
+  'settings.refresh': 'Refresh',
+  'settings.saved': 'Saved',
+  'settings.failed': 'Action failed',
+  'agents.title': 'Registry',
+  'agents.hint': 'Registered sessions can be woken by external signals and other sessions; disabling greys them out without deleting.',
+  'agents.new': 'New registration',
+  'agents.edit': 'Edit',
+  'agents.delete': 'Delete',
+  'agents.disabled': 'Disabled',
+  'agents.enabled': 'Enabled',
+  'agents.waiting': 'waits',
+  'agents.empty': 'No sessions registered yet.',
+  'agents.name': 'Name',
+  'agents.sessionId': 'Session id',
+  'agents.role': 'Role',
+  'agents.knows': 'Knows (comma separated)',
+  'agents.allowFrom': 'Allow wake-ups from (owner / session id / *)',
+  'agents.subscriptions': 'Long-term subscriptions (JSON array, may be empty)',
+  'agents.save': 'Save',
+  'agents.cancel': 'Cancel',
+  'agents.confirmDelete': 'Delete "{name}"? Its waits will be removed too.',
+  'waiting.title': 'Waits',
+  'waiting.hint': 'One-shot waits; consumed on match and swept when expired.',
+  'waiting.empty': 'No waits right now.',
+  'waiting.remaining': '{time} left',
+  'waiting.expired': 'expired',
+  'waiting.remove': 'Remove',
+  'waiting.stale': 'Session archived (stale)',
+  'guard.title': 'Guardrails',
+  'guard.hint': 'Rate limits and hop cap; changes affect subsequent deliveries immediately.',
+  'guard.maxHop': 'Max hop',
+  'guard.maxPerMinute': 'Max deliveries per minute',
+  'guard.minIntervalMs': 'Min interval per session (ms)',
+  'guard.defaultTtlSeconds': 'Default wait TTL (s)',
+  'guard.hmacEnabled': 'Require HMAC signature (external /signal)',
+  'guard.hmacSecret': 'HMAC secret (empty = token)',
+  'guard.save': 'Save guardrails',
+  'log.title': 'Recent deliveries (collapsed)',
+  'log.empty': 'No deliveries yet.',
+  'log.ok': 'ok',
+  'log.fail': 'failed',
+  'error.load': 'Load failed: {message}',
+  'error.network': 'Request failed: {message}'
+};
+
+const ADMIN_URL = '/api/session-bus-admin';
+
+async function callAdmin(action, body) {
+  const response = await fetch(ADMIN_URL + '?action=' + encodeURIComponent(action), {
+    method: body === undefined ? 'GET' : 'POST',
+    credentials: 'same-origin',
+    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify({ action, ...body })
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || data.ok !== true) {
+    throw new Error((data && data.error) || 'HTTP ' + response.status);
+  }
+  return data;
+}
+
+const CARD = {
+  background: 'var(--dsw-alias-bg-layer-1)',
+  border: '1px solid var(--dsw-alias-border-l1)',
+  borderRadius: 12,
+  padding: '12px 16px 10px',
+  marginBottom: 14
+};
+const CARD_TITLE = { margin: '0 0 2px', fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' };
+const CARD_HINT = { margin: '0 0 8px', fontSize: 11, color: 'var(--dsw-alias-label-secondary)' };
+const INPUT = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '5px 8px',
+  borderRadius: 8,
+  border: '1px solid var(--dsw-alias-border-l1)',
+  background: 'var(--dsw-alias-bg-layer-2)',
+  color: 'var(--dsw-alias-label-primary)',
+  font: 'inherit'
+};
+const BUTTON = {
+  padding: '5px 11px',
+  borderRadius: 8,
+  border: '1px solid var(--dsw-alias-border-l2)',
+  background: 'var(--dsw-alias-bg-layer-1)',
+  color: 'var(--dsw-alias-label-primary)',
+  cursor: 'pointer',
+  font: 'inherit',
+  fontSize: 12
+};
+const ROW = { display: 'grid', gap: 6, padding: '8px 0', borderBottom: '1px solid var(--dsw-alias-border-l1)' };
+const MUTED = { fontSize: 11, color: 'var(--dsw-alias-label-secondary)' };
+const ODD = { background: 'var(--dsw-alias-bg-layer-2)' };
+
+function h(tag, props, ...children) {
+  return React.createElement(tag, props, ...children);
+}
+
+function formatRemaining(ms) {
+  if (ms <= 0) return '';
+  const total = Math.floor(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return minutes > 0 ? minutes + 'm ' + seconds + 's' : seconds + 's';
+}
+
+function SessionBusSettings(props) {
+  const t = props.t;
+  const [data, setData] = React.useState({ agents: [], waiting: [], settings: null, log: [] });
+  const [busy, setBusy] = React.useState(false);
+  const [flash, setFlash] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [form, setForm] = React.useState(null);
+  const [draft, setDraft] = React.useState({});
+  const [now, setNow] = React.useState(Date.now());
+  const [guard, setGuard] = React.useState({});
+  const [confirmDelete, setConfirmDelete] = React.useState(null);
+
+  async function load() {
+    setError(null);
+    try {
+      const [agents, waiting, settings, log] = await Promise.all([
+        callAdmin('listAgents'),
+        callAdmin('listWaiting'),
+        callAdmin('listSettings'),
+        callAdmin('listLog', { limit: 50 })
+      ]);
+      setData({ agents: agents.agents || [], waiting: waiting.waiting || [], settings: settings.settings || null, log: log.entries || [] });
+      setGuard(settings.settings || {});
+    } catch (failure) {
+      setError(String((failure && failure.message) || failure));
+    }
+  }
+
+  React.useEffect(function () {
+    load();
+    const timer = setInterval(function () {
+      setNow(Date.now());
+    }, 1000);
+    return function () {
+      clearInterval(timer);
+    };
+  }, []);
+
+  function flashSaved() {
+    setFlash(t('settings.saved'));
+    setTimeout(function () {
+      setFlash(null);
+    }, 1500);
+  }
+
+  async function run(action, body) {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      flashSaved();
+      await load();
+    } catch (failure) {
+      setError(String((failure && failure.message) || failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startCreate() {
+    setForm('create');
+    setDraft({ sessionId: '', name: '', role: '', knows: '', allowFrom: 'owner', enabled: true, subscriptions: '[]' });
+  }
+
+  function startEdit(agent) {
+    setForm('edit');
+    setDraft({
+      sessionId: agent.sessionId,
+      name: agent.name || '',
+      role: agent.role || '',
+      knows: (agent.knows || []).join(', '),
+      allowFrom: (agent.allowFrom || ['owner']).join(', '),
+      enabled: agent.enabled !== false,
+      subscriptions: JSON.stringify(agent.subscriptions || [], null, 2)
+    });
+  }
+
+  function parseList(value) {
+    return String(value || '')
+      .split(',')
+      .map(function (part) {
+        return part.trim();
+      })
+      .filter(function (part) {
+        return part !== '';
+      });
+  }
+
+  async function saveAgent() {
+    let subscriptions = [];
+    const raw = String(draft.subscriptions || '').trim();
+    if (raw !== '') {
+      try {
+        subscriptions = JSON.parse(raw);
+      } catch (_error) {
+        setError('subscriptions: JSON parse error');
+        return;
+      }
+      if (!Array.isArray(subscriptions)) {
+        setError('subscriptions: must be a JSON array');
+        return;
+      }
+    }
+    const agent = {
+      sessionId: String(draft.sessionId || '').trim(),
+      name: String(draft.name || '').trim(),
+      role: String(draft.role || ''),
+      knows: parseList(draft.knows),
+      allowFrom: parseList(draft.allowFrom),
+      enabled: draft.enabled !== false,
+      subscriptions
+    };
+    await run(async function () {
+      await callAdmin('saveAgent', { agent });
+    });
+    setForm(null);
+  }
+
+  async function removeAgent(agent) {
+    if (confirmDelete !== agent.sessionId) return;
+    await run(async function () {
+      await callAdmin('deleteAgent', { sessionId: agent.sessionId });
+    });
+    setConfirmDelete(null);
+  }
+
+  async function toggleAgent(agent) {
+    await run(async function () {
+      await callAdmin('toggleAgent', { sessionId: agent.sessionId, enabled: agent.enabled === false });
+    });
+  }
+
+  async function removeWaiting(item) {
+    await run(async function () {
+      await callAdmin('removeWaiting', { id: item.id });
+    });
+  }
+
+  async function saveGuard() {
+    await run(async function () {
+      await callAdmin('saveSettings', { settings: guard });
+    });
+  }
+
+  function field(label, key, opts) {
+    const options = opts || {};
+    return h(
+      'label',
+      { style: { display: 'grid', gap: 3, marginBottom: 8 } },
+      h('span', { style: MUTED }, label),
+      options.multiline
+        ? h('textarea', {
+            style: Object.assign({}, INPUT, { minHeight: 54, resize: 'vertical', fontFamily: 'monospace' }),
+            value: draft[key] === undefined ? '' : draft[key],
+            onChange: function (event) {
+              const next = Object.assign({}, draft);
+              next[key] = event.target.value;
+              setDraft(next);
+            }
+          })
+        : h('input', {
+            style: INPUT,
+            value: draft[key] === undefined ? '' : draft[key],
+            type: options.type || 'text',
+            onChange: function (event) {
+              const next = Object.assign({}, draft);
+              next[key] = event.target.value;
+              setDraft(next);
+            }
+          })
+    );
+  }
+
+  const agents = data.agents || [];
+  const waiting = data.waiting || [];
+  const log = data.log || [];
+  const settings = data.settings || {};
+
+  return h(
+    'div',
+    { style: { maxWidth: 760 } },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 } },
+      h('h3', { style: { margin: 0 } }, t('settings.title')),
+      h('button', { type: 'button', style: BUTTON, onClick: load, disabled: busy }, t('settings.refresh')),
+      flash !== null ? h('span', { style: { fontSize: 12, color: 'var(--dsw-alias-label-success)' } }, flash) : null
+    ),
+    h('p', { style: CARD_HINT }, t('settings.intro')),
+    error !== null ? h('p', { style: { fontSize: 12, color: 'var(--dsw-alias-label-danger)' } }, t('error.load').replace('{message}', error)) : null,
+
+    // registry
+    h(
+      'section',
+      { style: CARD },
+      h('h4', { style: CARD_TITLE }, t('agents.title')),
+      h('p', { style: CARD_HINT }, t('agents.hint')),
+      form === null
+        ? h(
+            'div',
+            { style: { display: 'flex', justifyContent: 'flex-end', marginBottom: 6 } },
+            h('button', { type: 'button', style: BUTTON, onClick: startCreate }, t('agents.new'))
+          )
+        : h(
+            'div',
+            { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'var(--dsw-alias-bg-layer-2)' } },
+            field(t('agents.sessionId'), 'sessionId'),
+            field(t('agents.name'), 'name'),
+            field(t('agents.role'), 'role'),
+            field(t('agents.knows'), 'knows'),
+            field(t('agents.allowFrom'), 'allowFrom'),
+            field(t('agents.subscriptions'), 'subscriptions', { multiline: true }),
+            h(
+              'label',
+              { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: 12 } },
+              h('input', {
+                type: 'checkbox',
+                checked: draft.enabled !== false,
+                onChange: function (event) {
+                  const next = Object.assign({}, draft);
+                  next.enabled = event.target.checked;
+                  setDraft(next);
+                }
+              }),
+              t('agents.enabled')
+            ),
+            h(
+              'div',
+              { style: { display: 'flex', gap: 8 } },
+              h('button', { type: 'button', style: BUTTON, onClick: saveAgent, disabled: busy }, t('agents.save')),
+              h('button', { type: 'button', style: BUTTON, onClick: function () { setForm(null); } }, t('agents.cancel'))
+            )
+          ),
+      agents.length === 0
+        ? h('p', { style: MUTED }, t('agents.empty'))
+        : agents.map(function (agent) {
+            const disabled = agent.enabled === false;
+            const editing = confirmDelete === agent.sessionId;
+            return h(
+              'div',
+              { key: agent.sessionId, style: Object.assign({}, ROW, disabled ? { opacity: 0.55 } : null) },
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+                h('strong', { style: { fontSize: 13 } }, agent.name || agent.sessionId),
+                h('span', { style: MUTED }, agent.sessionId),
+                h('span', { style: Object.assign({}, MUTED, { marginLeft: 'auto' }) }, (disabled ? t('agents.disabled') : t('agents.enabled')) + ' · ' + String(agent.waitingCount || 0) + ' ' + t('agents.waiting'))
+              ),
+              agent.role ? h('div', { style: MUTED }, agent.role) : null,
+              h(
+                'div',
+                { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+                h('button', { type: 'button', style: BUTTON, onClick: function () { startEdit(agent); } }, t('agents.edit')),
+                h('button', { type: 'button', style: BUTTON, onClick: function () { toggleAgent(agent); } }, disabled ? t('agents.enabled') : t('agents.disabled')),
+                h('button', { type: 'button', style: BUTTON, onClick: function () { setConfirmDelete(agent.sessionId); } }, t('agents.delete'))
+              ),
+              editing
+                ? h(
+                    'div',
+                    { style: { padding: 8, border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, background: 'var(--dsw-alias-bg-layer-2)' } },
+                    h('div', { style: { fontSize: 12, marginBottom: 6 } }, t('agents.confirmDelete').replace('{name}', agent.name || agent.sessionId)),
+                    h(
+                      'div',
+                      { style: { display: 'flex', gap: 8 } },
+                      h('button', { type: 'button', style: BUTTON, onClick: function () { removeAgent(agent); }, disabled: busy }, t('agents.delete')),
+                      h('button', { type: 'button', style: BUTTON, onClick: function () { setConfirmDelete(null); } }, t('agents.cancel'))
+                    )
+                  )
+                : null
+            );
+          })
+    ),
+
+    // waits
+    h(
+      'section',
+      { style: CARD },
+      h('h4', { style: CARD_TITLE }, t('waiting.title')),
+      h('p', { style: CARD_HINT }, t('waiting.hint')),
+      waiting.length === 0
+        ? h('p', { style: MUTED }, t('waiting.empty'))
+        : h(
+            'div',
+            null,
+            waiting.map(function (item) {
+              const remaining = Date.parse(item.expiresAt) - now;
+              const label = item.stale === true ? t('waiting.stale') : remaining > 0 ? t('waiting.remaining').replace('{time}', formatRemaining(remaining)) : t('waiting.expired');
+              return h(
+                'div',
+                { key: item.id, style: ROW },
+                h(
+                  'div',
+                  { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+                  h('span', { style: { fontSize: 12 } }, String(item.source || '') + (item.reason ? ' · ' + item.reason : '')),
+                  h('span', { style: Object.assign({}, MUTED, { marginLeft: 'auto' }) }, label)
+                ),
+                h('div', { style: MUTED }, item.sessionId),
+                h(
+                  'div',
+                  { style: { display: 'flex', gap: 6 } },
+                  h('button', { type: 'button', style: BUTTON, onClick: function () { removeWaiting(item); }, disabled: busy }, t('waiting.remove'))
+                )
+              );
+            })
+          )
+    ),
+
+    // guardrails
+    h(
+      'section',
+      { style: CARD },
+      h('h4', { style: CARD_TITLE }, t('guard.title')),
+      h('p', { style: CARD_HINT }, t('guard.hint')),
+      h(
+        'div',
+        { style: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 } },
+        h(
+          'label',
+          { style: { display: 'grid', gap: 3 } },
+          h('span', { style: MUTED }, t('guard.maxHop')),
+          h('input', { style: INPUT, type: 'number', value: guard.maxHop === undefined ? '' : guard.maxHop, onChange: function (event) { setGuard(Object.assign({}, guard, { maxHop: Number(event.target.value) })); } })
+        ),
+        h(
+          'label',
+          { style: { display: 'grid', gap: 3 } },
+          h('span', { style: MUTED }, t('guard.maxPerMinute')),
+          h('input', { style: INPUT, type: 'number', value: guard.maxPerMinute === undefined ? '' : guard.maxPerMinute, onChange: function (event) { setGuard(Object.assign({}, guard, { maxPerMinute: Number(event.target.value) })); } })
+        ),
+        h(
+          'label',
+          { style: { display: 'grid', gap: 3 } },
+          h('span', { style: MUTED }, t('guard.minIntervalMs')),
+          h('input', { style: INPUT, type: 'number', value: guard.minIntervalMs === undefined ? '' : guard.minIntervalMs, onChange: function (event) { setGuard(Object.assign({}, guard, { minIntervalMs: Number(event.target.value) })); } })
+        ),
+        h(
+          'label',
+          { style: { display: 'grid', gap: 3 } },
+          h('span', { style: MUTED }, t('guard.defaultTtlSeconds')),
+          h('input', { style: INPUT, type: 'number', value: guard.defaultTtlSeconds === undefined ? '' : guard.defaultTtlSeconds, onChange: function (event) { setGuard(Object.assign({}, guard, { defaultTtlSeconds: Number(event.target.value) })); } })
+        ),
+        h(
+          'label',
+          { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 } },
+          h('input', { type: 'checkbox', checked: guard.hmacEnabled === true, onChange: function (event) { setGuard(Object.assign({}, guard, { hmacEnabled: event.target.checked })); } }),
+          t('guard.hmacEnabled')
+        )
+      ),
+      h(
+        'label',
+        { style: { display: 'grid', gap: 3, marginTop: 10 } },
+        h('span', { style: MUTED }, t('guard.hmacSecret')),
+        h('input', { style: INPUT, type: 'password', value: guard.hmacSecret === null || guard.hmacSecret === undefined ? '' : guard.hmacSecret, onChange: function (event) { setGuard(Object.assign({}, guard, { hmacSecret: event.target.value })); } })
+      ),
+      h(
+        'div',
+        { style: { display: 'flex', gap: 8, marginTop: 10 } },
+        h('button', { type: 'button', style: BUTTON, onClick: saveGuard, disabled: busy }, t('guard.save'))
+      ),
+      h('p', { style: MUTED }, 'settings.json · ' + String(settings.maxHop === undefined ? '' : settings.maxHop))
+    ),
+
+    // log
+    h(
+      'details',
+      { style: CARD },
+      h('summary', { style: { cursor: 'pointer', fontSize: 13, fontWeight: 600 } }, t('log.title')),
+      log.length === 0
+        ? h('p', { style: MUTED }, t('log.empty'))
+        : log
+            .slice()
+            .reverse()
+            .map(function (entry, index) {
+              return h(
+                'div',
+                { key: String(entry.eventId || '') + index, style: Object.assign({}, ROW, ODD) },
+                h(
+                  'div',
+                  { style: { display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12 } },
+                  h('span', null, String(entry.at || '')),
+                  h('span', { style: { marginLeft: 'auto', color: entry.ok === true ? 'var(--dsw-alias-label-success)' : 'var(--dsw-alias-label-danger)' } }, entry.ok === true ? t('log.ok') : t('log.fail') + (entry.reason ? ' · ' + entry.reason : ''))
+                ),
+                h('div', { style: MUTED }, String(entry.sessionId || '') + ' · hop ' + String(entry.hop === undefined ? '' : entry.hop) + ' · ' + String(entry.source || ''))
+              );
+            })
+    )
+  );
+}
+
+function apply(ctx) {
+  ctx.inject(['slots', 'locale'], (c) => {
+    c.effect(() => c.locale.register(NS, { zh: ZH, en: EN }));
+    c.slots.inject('settings.section', () => {
+      let label = 'Session bus';
+      try {
+        const translate = c.locale.bind(NS);
+        const text = translate('settings.title');
+        if (typeof text === 'string' && text !== '') label = text;
+      } catch (_error) {}
+      return c.slots.register(
+        { name: 'settings.section', id: 'session-bus', order: 30, locale: NS, label },
+        SessionBusSettings
+      );
+    });
+  });
+}
+
+return { inject: ['slots', 'locale'], apply: apply };
+

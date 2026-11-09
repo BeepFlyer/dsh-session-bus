@@ -1,0 +1,38 @@
+{
+  "name": "dsh-session-bus",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "icon": "./icon.svg",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "client-body.js",
+    "scripts/build-client.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "SPEC.md",
+    "icon.svg"
+  ],
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "check:client": "node scripts/build-client.mjs --check"
+  },
+  "description": "Session bus: registered intent + matching + guarded delivery between DSH sessions and external processes.",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  }
+}
