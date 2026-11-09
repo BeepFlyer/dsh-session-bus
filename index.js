@@ -447,13 +447,41 @@ export function apply(ctx) {
       };
       const agents = readAgents().agents;
       const waiting = readWaiting().waiting;
-      const plan = [];
+      // 同一 event 对同一 sessionId 最多投递一次：
+      // 等待项优先于长期订阅；同类规则按创建时间早的优先。
+      const waitingMatches = [];
+      for (const item of waiting) {
+        if (item.sessionId === undefined || item.stale === true) continue;
+        if (item.source !== undefined && String(item.source) !== String(first.source)) continue;
+        if (!matches(item.match, text, from, type)) continue;
+        const owner = findAgent(agents, item.sessionId);
+        waitingMatches.push({
+          sessionId: item.sessionId,
+          name: (owner && owner.name) || item.sessionId,
+          template: '你在等的 {source} 事件到了（{count} 条），见 {inboxPath}。',
+          waitingId: item.id || null,
+          createdAt: item.createdAt || ''
+        });
+      }
+      waitingMatches.sort((left, right) => {
+        const a = Date.parse(left.createdAt);
+        const b = Date.parse(right.createdAt);
+        if (!Number.isFinite(a) && !Number.isFinite(b)) return 0;
+        if (!Number.isFinite(a)) return 1;
+        if (!Number.isFinite(b)) return -1;
+        return a - b;
+      });
+      const bySession = new Map();
+      for (const entry of waitingMatches) {
+        if (!bySession.has(entry.sessionId)) bySession.set(entry.sessionId, entry);
+      }
       for (const agent of agents) {
         if (agent.enabled === false) continue;
         const subs = Array.isArray(agent.subscriptions) ? agent.subscriptions : [];
         for (const sub of subs) {
+          if (bySession.has(agent.sessionId)) continue;
           if (!matches(sub.match, text, from, type)) continue;
-          plan.push({
+          bySession.set(agent.sessionId, {
             sessionId: agent.sessionId,
             name: agent.name || agent.sessionId,
             template: sub.template || '来源 {source} 有 {count} 条新观察，见 {inboxPath}。',
@@ -461,18 +489,7 @@ export function apply(ctx) {
           });
         }
       }
-      for (const item of waiting) {
-        if (item.sessionId === undefined || item.stale === true) continue;
-        if (item.source !== undefined && String(item.source) !== String(first.source)) continue;
-        if (!matches(item.match, text, from, type)) continue;
-        const owner = findAgent(agents, item.sessionId);
-        plan.push({
-          sessionId: item.sessionId,
-          name: (owner && owner.name) || item.sessionId,
-          template: '你在等的 {source} 事件到了（{count} 条），见 {inboxPath}。',
-          waitingId: item.id || null
-        });
-      }
+      const plan = Array.from(bySession.values());
       const results = [];
       for (const target of plan) {
         const header = '[session-bus | ' + first.source + ' → ' + target.name + ' | ' + type + ' | ' + localTime(new Date()) + ']';
