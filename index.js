@@ -313,6 +313,28 @@ export function apply(ctx) {
       } catch (_error) {}
     };
 
+    // External processes (the Feishu bridge) discover this Host here: the listen
+    // port changes on every restart, so origin.txt is the only stable entry.
+    let originTimer = null;
+    const originFile = path.join(BUS_DIR, 'origin.txt');
+    function publishOrigin(attempt) {
+      originTimer = null;
+      try {
+        const origin = c.webServer.getOrigin();
+        if (typeof origin === 'string' && origin.startsWith('http')) {
+          writeFileSync(originFile, origin + '\n', 'utf8');
+          log('origin published: ' + origin + ' -> ' + originFile);
+          return;
+        }
+      } catch (_error) {}
+      if (attempt < 300) {
+        originTimer = setTimeout(() => publishOrigin(attempt + 1), 1000);
+        try {
+          originTimer.unref?.();
+        } catch (_error) {}
+      }
+    }
+
     async function reserveSlot(sessionId) {
       const settings = readSettings();
       const deadline = Date.now() + 60000;
@@ -858,7 +880,12 @@ export function apply(ctx) {
     c.effect(() => {
       const disposers = PUBLIC_PATHS.map((routePath) => c.webServer.register({ kind: 'exact', path: routePath, handler: publicHandler }));
       disposers.push(c.connection.fetch.register({ path: ADMIN_PATH, methods: ['GET', 'POST'], requestBody: 'buffered', fetch: adminHandler }));
+      publishOrigin(0);
       return () => {
+        if (originTimer !== null) {
+          clearTimeout(originTimer);
+          originTimer = null;
+        }
         for (const dispose of disposers) {
           try {
             dispose();

@@ -97,7 +97,9 @@ curl -s -X POST http://127.0.0.1:<端口>/api/session-bus/signal \
   --data-binary '{"source":"feishu","from":"owner","type":"image","text":"大肥鱼看这张"}'
 ```
 
-端口从 `ctx.webServer.getOrigin()` 取（每次重启可能变，不要写死）。
+端口从 `ctx.webServer.getOrigin()` 取（每次重启可能变，不要写死）。**Host 会把当前地址写进
+`<BUS_DIR>/origin.txt`（一行 URL）**，外部进程（飞书桥等）读这个文件发现总线即可；重启后文件会随
+插件重新注册而更新。
 
 **3. 那个会话会收到一条带前缀的消息**，内容由等待项的模板渲染：
 
