@@ -32,13 +32,15 @@ DSH 现有的两种"发起"方式都不够用：
 - `ctx.sessions.retain()` + `beginSubmission` 是 **Client 侧** API，外部进程拿不到绑定
 - cordis 事件总线不跨进程，不能当 IPC
 
-**只有一种位置可行：在桌面 Host 进程内**，调
+**只有一种位置可行：在桌面 Host 进程内**，取活 Agent 后 `followup` 一条带非 user source 的消息：
 
 ```js
-ctx.get('sessionController').prompt({ requestId, sessionId, mode: 'queue', content: [...] })
+const found = await ctx.get('sessionController').resolveAgent(sessionId) // 会话开着用活的，关着从持久化 resume
+found.agent.followup({ id, role: 'user', content: [{ type: 'text', text }], source })
+await ctx.get('sessions').flush(found.agent.session) // flush 成功才算投递成功
 ```
 
-它内部先 `resolveAgent`——会话开着就用活的 agent，关着就从持久化 resume，**同一个 session、同一份日志**。
+`source` 决定客户端怎么渲染（见下节）；同一 session、同一份日志，不新建会话。
 
 完整的排查过程与实测证据见 [SPEC.md](SPEC.md) 与 `docs/decisions.md` 的 ADR-006。
 
@@ -184,7 +186,10 @@ bus_deliver 不需要先注册也能用；但要让**别人投给你**，你必�
 - 只监听 loopback，不对外提供服务
 - token 文件在 `.gitignore` 里，仓库不含任何凭证
 - HMAC + 时间戳防重放可选（默认关），开启后 `x-bus-signature = HMAC-SHA256(secret, timestamp + "\n" + rawBody)`
-- 投递的消息作为**普通用户消息**进入目标会话——它不能提权，只能触发一轮正常对话
+- 投递的消息**不显示成用户气泡**：
+  - 会话→会话：`{kind:'agent-message', form:'relay', senderSessionId}` → 客户端渲染成「来自会话 X」的上下文行（可展开看正文）；
+  - 外部/owner：`{kind:'webhook', form:'notice', provider, source, deliveryId, ruleId, summary}` → 渲染成带摘要的通知上下文行；
+  - 代价：上下文行由 DSH 原生渲染，标题是通用的「注入的上下文」，生产者标签显示 source kind（`agent-message` / `webhook`），不是自定义卡片；要做自定义卡片需替换 `conversation.chat.node` 的 `context` 渲染器（shadows shipped UI，风险高）。
 
 ---
 

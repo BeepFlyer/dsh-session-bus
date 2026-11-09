@@ -330,14 +330,6 @@ export function apply(ctx) {
       }
     }
 
-    async function flushSession(sessionId) {
-      const found = await controller.resolveAgent(sessionId);
-      if (found && found.error) throw Object.assign(new Error(found.error.message || 'resolve failed'), { code: found.error.code || 'resolve-failed' });
-      const agent = found && found.agent;
-      if (!agent) throw Object.assign(new Error('agent unavailable'), { code: 'resolve-failed' });
-      return (await sessions.flush(agent.session)) === true;
-    }
-
     async function deliverOnce(options) {
       const settings = readSettings();
       const entry = {
@@ -349,7 +341,8 @@ export function apply(ctx) {
         accepted: false,
         flushed: false,
         reason: null,
-        source: options.source || null
+        source: options.source || null,
+        renderSource: options.from === 'owner' ? 'webhook' : 'agent-message'
       };
       if (options.hop > settings.maxHop) {
         entry.reason = 'hop-exceeded';
@@ -371,23 +364,34 @@ export function apply(ctx) {
         return entry;
       }
       try {
-        const result = await controller.prompt(
-          {
-            requestId: randomUUID(),
-            sessionId: options.sessionId,
-            mode: 'queue',
-            content: [{ type: 'text', text: options.text }]
-          },
-          new AbortController().signal
-        );
-        entry.accepted = !(result && result.accepted === false);
-        if (!entry.accepted) {
-          entry.reason = 'not-accepted';
-        } else {
-          entry.flushed = await flushSession(options.sessionId);
-          entry.ok = entry.flushed === true;
-          if (!entry.ok) entry.reason = 'flush-failed';
-        }
+        const found = await controller.resolveAgent(options.sessionId);
+        if (found && found.error) throw Object.assign(new Error(found.error.message || 'resolve failed'), { code: found.error.code || 'resolve-failed' });
+        const agent = found && found.agent;
+        if (!agent) throw Object.assign(new Error('agent unavailable'), { code: 'resolve-failed' });
+        // 会话→会话用 relay（客户端渲染成「来自会话 X」的上下文行）；
+        // 外部/owner 事件用 webhook notice（客户端渲染成带摘要的注入行）。
+        const relaySource = options.from !== 'owner';
+        const source = relaySource
+          ? { kind: 'agent-message', form: 'relay', senderSessionId: options.from }
+          : {
+              kind: 'webhook',
+              form: 'notice',
+              provider: 'session-bus',
+              source: String(options.source || 'owner'),
+              deliveryId: String(options.eventId || randomUUID()),
+              ruleId: 'session-bus',
+              summary: options.text.replace(/\s+/g, ' ').slice(0, 120)
+            };
+        agent.followup({
+          id: randomUUID(),
+          role: 'user',
+          content: [{ type: 'text', text: options.text }],
+          source
+        });
+        entry.accepted = true;
+        entry.flushed = (await sessions.flush(agent.session)) === true;
+        entry.ok = entry.flushed === true;
+        if (!entry.ok) entry.reason = 'flush-failed';
       } catch (error) {
         entry.reason = (error && error.code) || 'prompt-failed';
         if (entry.reason === 'prompt-failed') entry.reason = 'prompt-failed: ' + String((error && error.message) || error);
