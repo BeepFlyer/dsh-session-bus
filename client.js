@@ -21,6 +21,8 @@ const ZH = {
   'agents.delete': '删除',
   'agents.disabled': '已停用',
   'agents.enabled': '启用中',
+  'agents.enable': '启用',
+  'agents.disable': '停用',
   'agents.waiting': '等待项',
   'agents.empty': '还没有登记任何会话。',
   'agents.name': '名字',
@@ -69,6 +71,8 @@ const EN = {
   'agents.delete': 'Delete',
   'agents.disabled': 'Disabled',
   'agents.enabled': 'Enabled',
+  'agents.enable': 'Enable',
+  'agents.disable': 'Disable',
   'agents.waiting': 'waits',
   'agents.empty': 'No sessions registered yet.',
   'agents.name': 'Name',
@@ -389,7 +393,7 @@ function SessionBusSettings(props) {
                   setDraft(next);
                 }
               }),
-              t('agents.enabled')
+              t('agents.enable')
             ),
             h(
               'div',
@@ -418,7 +422,7 @@ function SessionBusSettings(props) {
                 'div',
                 { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
                 h('button', { type: 'button', style: BUTTON, onClick: function () { startEdit(agent); } }, t('agents.edit')),
-                h('button', { type: 'button', style: BUTTON, onClick: function () { toggleAgent(agent); } }, disabled ? t('agents.enabled') : t('agents.disabled')),
+                h('button', { type: 'button', style: BUTTON, onClick: function () { toggleAgent(agent); } }, disabled ? t('agents.enable') : t('agents.disable')),
                 h('button', { type: 'button', style: BUTTON, onClick: function () { setConfirmDelete(agent.sessionId); } }, t('agents.delete'))
               ),
               editing
