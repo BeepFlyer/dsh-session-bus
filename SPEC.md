@@ -186,11 +186,13 @@ delivery     投递：一个事件对某个会话的一次 prompt 调用
 每次投递的正文**必须**自动带上来源 / 目的地 / 时间：
 
 ```
-[feishu → 大肥鱼 | image | 18:40]
+[session-bus | feishu → 大肥鱼 | image | 18:40]
 <模板渲染后的正文>
 ```
 
-前缀格式固定为 `[<source> → <name> | <type> | <HH:MM>]`，
+前缀格式固定为 `[session-bus | <source> → <name> | <type> | <HH:MM>]`，
+开头的 `session-bus` 是**通道标记**——收到方能一眼分清这是总线路由的消息还是人在说话，
+并且知道自己可以用 `bus_deliver` 回。
 实现里由插件拼接，**不允许订阅自己覆盖前缀**。
 
 ### 6.2 prompt 调用
@@ -403,10 +405,10 @@ Wiki维护者 · 等 wiki 相关文件 · 剩 3 分钟 · [清除]
 |---|---|---|
 | 1 | 会话 A 调 `bus_wait_for({source:"feishu", type:"image"})` | `GET /waiting` 能看到这条，带 expiresAt |
 | 2 | curl 打 `/signal` 模拟一张飞书图片 | 返回 eventId 且 `delivered >= 1` |
-| 3 | 目标会话里 | **真的出现**带 `[feishu → X \| image \| HH:MM]` 前缀的消息 |
+| 3 | 目标会话里 | **真的出现**带 `[session-bus \| feishu → X \| image \| HH:MM]` 前缀的消息 |
 | 4 | 目标会话调 `bus_clear_waiting()` | `GET /waiting` 里该条消失 |
 | 5 | 等 TTL 过期（可设 10s 测） | 自动清除，`/log` 有记录 |
-| 6 | 会话 A 调 `bus_deliver` 给 B | B 里出现消息，前缀 `[<A的name> → <B的name> \| session \| HH:MM]` |
+| 6 | 会话 A 调 `bus_deliver` 给 B | B 里出现消息，前缀 `[session-bus \| <A的name> → <B的name> \| session \| HH:MM]` |
 | 7 | 构造 hop = maxHop 的投递 | 被拒，`/log` 记 `hop-exceeded` |
 | 8 | 同一会话 1 秒内投两次 | 第二次等待或被限流，不报 `writer-held` 给用户 |
 | 9 | 会话数前后对比 | **不产生新会话** |

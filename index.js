@@ -449,7 +449,7 @@ export function apply(ctx) {
       }
       const results = [];
       for (const target of plan) {
-        const header = '[' + first.source + ' → ' + target.name + ' | ' + type + ' | ' + localTime(new Date()) + ']';
+        const header = '[session-bus | ' + first.source + ' → ' + target.name + ' | ' + type + ' | ' + localTime(new Date()) + ']';
         const entry = await deliverOnce({
           eventId,
           sessionId: target.sessionId,
@@ -675,7 +675,7 @@ export function apply(ctx) {
           const agents = readAgents().agents;
           const target = findAgent(agents, sessionId);
           const name = (target && target.name) || sessionId;
-          const header = '[owner → ' + name + ' | direct | ' + localTime(new Date()) + ']';
+          const header = '[session-bus | owner → ' + name + ' | direct | ' + localTime(new Date()) + ']';
           const entry = await deliverOnce({
             eventId: 'evt-' + randomUUID(),
             sessionId,
@@ -758,7 +758,7 @@ export function apply(ctx) {
         const text = String(args && args.text ? args.text : '').trim();
         if (sessionId === '' || text === '') throw new Error('bus_deliver: sessionId and text are required');
         const hop = Number.isFinite(Number(args.hop)) ? Number(args.hop) + 1 : 1;
-        const header = '[' + callerName(caller) + ' → ' + callerName(sessionId) + ' | session | ' + localTime(new Date()) + ']';
+        const header = '[session-bus | ' + callerName(caller) + ' → ' + callerName(sessionId) + ' | session | ' + localTime(new Date()) + ']';
         const entry = await deliverOnce({
           eventId: 'evt-' + randomUUID(),
           sessionId,

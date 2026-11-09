@@ -125,13 +125,43 @@ curl -s -X POST http://127.0.0.1:<端口>/api/session-bus/signal \
 
 ## 给 agent 的工具
 
-| 工具 | 用途 |
-|---|---|
-| `bus_list_agents` | 列出所有注册会话（含 role / knows / 等待数） |
-| `bus_deliver` | 投递消息给另一个会话 |
-| `bus_wait_for` | 登记一个等待项 |
-| `bus_list_waiting` | 看自己在等什么 |
-| `bus_clear_waiting` | 清掉等待项 |
+| 工具 | 什么时候用 | 做什么 |
+|---|---|---|
+| `bus_list_agents` | **不确定有没有别人在，先调这个** | 列出所有注册会话（role / knows / 等待数） |
+| `bus_deliver` | 有一件事该交给另一个**独立会话**做（它有自己不知道的历史） | 投递消息，可带 `hop` |
+| `bus_wait_for` | 你在等一个**外部事件**，且不想轮询 | 登记等待项（源 + 匹配 + TTL） |
+| `bus_list_waiting` | 想确认自己在等什么 / 有没有过期 | 列出自己的等待项 |
+| `bus_clear_waiting` | 等到了、或者不想等了 | 清掉（不传 id 清全部） |
+
+### 会话怎么"登记自己"
+
+没有单独的注册工具——**第一次调 `bus_list_agents` 时，如果发现列表里没有你，就给自己登记一次**：
+
+```
+bus_deliver 不需要先注册也能用；但要让**别人投给你**，你必须先出现在注册表里。
+```
+
+登记方式二选一：
+
+1. **设置页** → 注册表 → 新建（name / sessionId / role / knows / allowFrom）
+2. **admin API**：`POST /api/session-bus/admin` `{action:"saveAgent", agent:{...}}`
+
+`role` 和 `knows` 不是装饰——别的会话会读它来决定"这活该派给谁"。
+
+### 收到消息时怎么认出来
+
+任何通过总线进来的消息都带固定前缀：
+
+```
+[session-bus | 大肥鱼 → 探针会话 | session | 19:35]
+```
+
+- 开头的 `session-bus` 表示**通道**（不是普通用户消息）
+- 中间是**谁 → 谁**
+- 第三段是**类型**：`session`（会话间）、`direct`（owner 直投）、`event`（外部事件）
+- 最后是**时间**
+
+收到这种前缀就知道两件事：**这不是人在跟你说话**，以及**你可以用 `bus_deliver` 回它**。
 
 ---
 
