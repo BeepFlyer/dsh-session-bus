@@ -36,6 +36,7 @@ const ZH = {
   'agents.memoryPoolUnset': '未设置',
   'agents.memoryPoolMissing': '路径不存在',
   'agents.copy': '复制',
+  'agents.renameHint': '改 sessionId 后，原会话不再接收总线消息；新 id 不能与已有会话重复。',
   'agents.copied': '已复制',
   'agents.subscriptions': '长期订阅（JSON 数组，可空）',
   'agents.save': '保存',
@@ -93,6 +94,7 @@ const EN = {
   'agents.memoryPoolUnset': 'not set',
   'agents.memoryPoolMissing': 'path not found',
   'agents.copy': 'copy',
+  'agents.renameHint': 'After changing the sessionId, the original session no longer receives bus messages; the new id must not collide with an existing one.',
   'agents.copied': 'copied',
   'agents.subscriptions': 'Long-term subscriptions (JSON array, may be empty)',
   'agents.save': 'Save',
@@ -255,13 +257,14 @@ function SessionBusSettings(props) {
 
   function startCreate() {
     setForm('create');
-    setDraft({ sessionId: '', name: '', role: '', knows: '', allowFrom: 'owner', enabled: true, allowAbort: false, memoryPool: '', subscriptions: '[]' });
+    setDraft({ sessionId: '', originalSessionId: '', name: '', role: '', knows: '', allowFrom: 'owner', enabled: true, allowAbort: false, memoryPool: '', subscriptions: '[]' });
   }
 
   function startEdit(agent) {
     setForm('edit');
     setDraft({
       sessionId: agent.sessionId,
+      originalSessionId: agent.sessionId,
       name: agent.name || '',
       role: agent.role || '',
       knows: (agent.knows || []).join(', '),
@@ -311,7 +314,7 @@ function SessionBusSettings(props) {
       subscriptions
     };
     await run(async function () {
-      await callAdmin('saveAgent', { agent });
+      await callAdmin('saveAgent', { agent, originalSessionId: draft.originalSessionId || '' });
     });
     setForm(null);
   }
@@ -405,6 +408,7 @@ function SessionBusSettings(props) {
             'div',
             { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'var(--dsw-alias-bg-layer-2)' } },
             field(t('agents.sessionId'), 'sessionId'),
+            draft.originalSessionId ? h('p', { style: MUTED }, t('agents.renameHint')) : null,
             field(t('agents.name'), 'name'),
             field(t('agents.role'), 'role'),
             field(t('agents.knows'), 'knows'),

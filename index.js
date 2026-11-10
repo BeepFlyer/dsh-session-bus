@@ -842,12 +842,25 @@ export function apply(ctx) {
         return { entries: lines.map((line) => { try { return JSON.parse(line); } catch (_error) { return { raw: line }; } }) };
       }
       if (action === 'saveAgent') {
-        const agent = normalizeAgent(payload && payload.agent ? payload.agent : payload || {});
+        const rawAgent = payload && payload.agent ? payload.agent : payload || {};
+        const agent = normalizeAgent(rawAgent);
+        const originalSessionId = String(payload && payload.originalSessionId ? payload.originalSessionId : rawAgent.originalSessionId || '').trim();
         await withStoreLock(() => {
           const agents = readAgents().agents;
-          const index = agents.findIndex((candidate) => candidate.sessionId === agent.sessionId);
-          if (index >= 0) agents[index] = { ...agents[index], ...agent };
-          else agents.push(agent);
+          if (originalSessionId !== '') {
+            const index = agents.findIndex((candidate) => candidate.sessionId === originalSessionId);
+            if (index < 0) throw Object.assign(new Error('original sessionId not found: ' + originalSessionId), { code: 'not-found' });
+            if (agents.some((candidate, candidateIndex) => candidateIndex !== index && candidate.sessionId === agent.sessionId)) {
+              throw Object.assign(new Error('sessionId already exists: ' + agent.sessionId), { code: 'conflict' });
+            }
+            agents[index] = { ...agents[index], ...agent, sessionId: agent.sessionId };
+            // 老 sessionId 的等待项跟着迁移，避免变成孤儿。
+            writeWaiting(readWaiting().waiting.map((item) => (item.sessionId === originalSessionId ? { ...item, sessionId: agent.sessionId } : item)));
+          } else {
+            const index = agents.findIndex((candidate) => candidate.sessionId === agent.sessionId);
+            if (index >= 0) agents[index] = { ...agents[index], ...agent };
+            else agents.push(agent);
+          }
           writeAgents(agents);
         });
         return { agent, agents: adminListAgents() };
