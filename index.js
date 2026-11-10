@@ -400,7 +400,7 @@ export function apply(ctx) {
       });
       return entries
         .map((entry, index) => {
-          const body = stripMarker(entry.body);
+          const body = stripMarker(entry.body).replace(/\s+$/, '');
           let marked = body;
           if (entry.ref !== '') marked = (lastByRef.get(entry.ref) === index ? '[最新] ' : '[旧] ') + body;
           return entry.header + (marked === '' ? '' : '\n' + marked);
@@ -415,14 +415,22 @@ export function apply(ctx) {
       });
     }
 
-    function collectQueueBlocks(agent) {
+    function collectQueueBlocks(agent, from) {
       if (agent === undefined || agent === null || agent.inbox === undefined) return [];
       const blocks = [];
       for (const list of [agent.inbox.nextTurn, agent.inbox.nextStep]) {
         for (const message of list) {
           const source = message.source;
           const body = String(message.content && message.content[0] && message.content[0].text ? message.content[0].text : '');
-          if (source && source.kind === 'agent-message' && source.form === 'relay' && body.includes('| kind=') && !body.includes('[steer]') && !body.includes('[abort]')) {
+          if (
+            source &&
+            source.kind === 'agent-message' &&
+            source.form === 'relay' &&
+            source.senderSessionId === from &&
+            body.includes('| kind=') &&
+            !body.includes('[steer]') &&
+            !body.includes('[abort]')
+          ) {
             blocks.push(message);
           }
         }
@@ -540,7 +548,7 @@ export function apply(ctx) {
         let text = options.text;
         let packed = 0;
         if (effectiveMode === 'steer') {
-          const blocks = collectQueueBlocks(agent);
+          const blocks = collectQueueBlocks(agent, options.from);
           if (blocks.length > 0) {
             const sections = blocks.map((block) => String(block.content && block.content[0] && block.content[0].text ? block.content[0].text : '')).filter((value) => value !== '');
             const combined = text + '\n\n【以下 ' + sections.length + ' 条为积压消息，一并处理】\n' + sections.join('\n\n') + '\n\n【以上积压已从队列移除】';
