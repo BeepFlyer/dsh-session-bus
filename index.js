@@ -370,6 +370,88 @@ export function apply(ctx) {
       return true;
     }
 
+    const MERGED_MAX_CHARS = 12000;
+
+    function splitEntries(text) {
+      if (typeof text !== 'string' || text.trim() === '') return [];
+      return text.split(/(?=\[session-bus \| )/).filter((part) => part.trim() !== '');
+    }
+
+    function entryParts(raw) {
+      const newline = raw.indexOf('\n');
+      if (newline < 0) return { header: raw, body: '' };
+      return { header: raw.slice(0, newline), body: raw.slice(newline + 1) };
+    }
+
+    function refOfHeader(header) {
+      const match = / \| ref=([^|\]]+)/.exec(header);
+      return match === null ? '' : match[1].trim();
+    }
+
+    function stripMarker(body) {
+      return body.replace(/^\[(?:旧|最新)\]\s*/, '');
+    }
+
+    // 同一 ref 只标最后一条 [最新]，其余 [旧]；无 ref 的原样平铺。
+    function renderEntries(entries) {
+      const lastByRef = new Map();
+      entries.forEach((entry, index) => {
+        if (entry.ref !== '') lastByRef.set(entry.ref, index);
+      });
+      return entries
+        .map((entry, index) => {
+          const body = stripMarker(entry.body);
+          let marked = body;
+          if (entry.ref !== '') marked = (lastByRef.get(entry.ref) === index ? '[最新] ' : '[旧] ') + body;
+          return entry.header + (marked === '' ? '' : '\n' + marked);
+        })
+        .join('\n\n');
+    }
+
+    function entriesOfText(text) {
+      return splitEntries(text).map((raw) => {
+        const parts = entryParts(raw);
+        return { header: parts.header, body: parts.body, ref: refOfHeader(parts.header) };
+      });
+    }
+
+    function collectQueueBlocks(agent) {
+      if (agent === undefined || agent === null || agent.inbox === undefined) return [];
+      const blocks = [];
+      for (const list of [agent.inbox.nextTurn, agent.inbox.nextStep]) {
+        for (const message of list) {
+          const source = message.source;
+          const body = String(message.content && message.content[0] && message.content[0].text ? message.content[0].text : '');
+          if (source && source.kind === 'agent-message' && source.form === 'relay' && body.includes('| kind=') && !body.includes('[steer]') && !body.includes('[abort]')) {
+            blocks.push(message);
+          }
+        }
+      }
+      return blocks;
+    }
+
+    function pendingBlockOf(agent, from) {
+      if (agent === undefined || agent === null || agent.inbox === undefined) return null;
+      const all = [...agent.inbox.nextTurn, ...agent.inbox.nextStep];
+      let found = null;
+      for (const message of all) {
+        const source = message.source;
+        if (source && source.kind === 'agent-message' && source.form === 'relay' && source.senderSessionId === from) {
+          const body = String(message.content && message.content[0] && message.content[0].text ? message.content[0].text : '');
+          // 只并普通 queue 块；[steer]/[abort] 是有方向的独立消息，不能再被后一条覆盖。
+          if (body.includes('[session-bus |') && body.includes('| kind=') && !body.includes('[steer]') && !body.includes('[abort]')) {
+            found = message;
+          }
+        }
+      }
+      return found;
+    }
+
+    function inboxCountOf(agent) {
+      if (agent === undefined || agent === null || agent.inbox === undefined) return null;
+      return agent.inbox.nextTurn.length + agent.inbox.nextStep.length;
+    }
+
     async function deliverOnce(options) {
       const settings = readSettings();
       const entry = {
@@ -384,7 +466,11 @@ export function apply(ctx) {
         source: options.source || null,
         renderSource: options.from === 'owner' ? 'webhook' : 'agent-message',
         mode: options.mode === 'steer' || options.mode === 'abort' ? options.mode : 'queue',
+        kind: ['decision', 'blocker', 'handoff', 'notice'].includes(options.kind) ? options.kind : 'notice',
+        ref: typeof options.ref === 'string' ? options.ref : '',
         agentStatus: null,
+        inboxCount: null,
+        merged: false,
         note: null
       };
       if (options.hop > settings.maxHop) {
@@ -452,6 +538,21 @@ export function apply(ctx) {
           }
         }
         let text = options.text;
+        let packed = 0;
+        if (effectiveMode === 'steer') {
+          const blocks = collectQueueBlocks(agent);
+          if (blocks.length > 0) {
+            const sections = blocks.map((block) => String(block.content && block.content[0] && block.content[0].text ? block.content[0].text : '')).filter((value) => value !== '');
+            const combined = text + '\n\n【以下 ' + sections.length + ' 条为积压消息，一并处理】\n' + sections.join('\n\n') + '\n\n【以上积压已从队列移除】';
+            if (combined.length <= MERGED_MAX_CHARS) {
+              for (const block of blocks) agent.inbox.remove(block.id);
+              text = combined;
+              packed = sections.length;
+            } else {
+              text += '\n\n【积压共 ' + sections.length + ' 条，超过长度上限未打包，仍留在队列】';
+            }
+          }
+        }
         if (effectiveMode === 'steer') {
           text += '\n[steer] 这条消息插在对方下一个步骤边界：当前步骤的工作可能白做，但不会丢失。';
           if (reasonText !== '') text += ' 理由：' + reasonText;
@@ -472,9 +573,35 @@ export function apply(ctx) {
         else if (effectiveMode === 'abort') {
           agent.cancel({ kind: 'user' }, { keepInbox: true });
           agent.followup(message);
-        } else agent.followup(message);
+        } else {
+          // 合并投递：同一发送方已有待处理块时并进去，队列永远最多一块。
+          const block = pendingBlockOf(agent, options.from);
+          const newEntries = entriesOfText(text);
+          if (block !== null && newEntries.length > 0) {
+            const mergedText = String(block.content && block.content[0] && block.content[0].text ? block.content[0].text : '');
+            const allEntries = entriesOfText(mergedText).concat(newEntries);
+            const rendered = renderEntries(allEntries);
+            if (rendered.length <= MERGED_MAX_CHARS) {
+              const replacement = {
+                id: block.id,
+                role: 'user',
+                content: [{ type: 'text', text: rendered }],
+                source: block.source
+              };
+              agent.inbox.replace(block.id, replacement);
+              entry.merged = true;
+            } else agent.followup(message);
+          } else {
+            const rendered = renderEntries(newEntries);
+            const single = { id: message.id, role: 'user', content: [{ type: 'text', text: rendered === '' ? text : rendered }], source };
+            agent.followup(single);
+          }
+        }
         entry.mode = effectiveMode;
         entry.note = note;
+        entry.packed = packed;
+        entry.inboxCount = inboxCountOf(agent);
+        entry.agentStatus = agent.status;
         entry.accepted = true;
         entry.flushed = (await sessions.flush(agent.session)) === true;
         entry.ok = entry.flushed === true;
@@ -885,7 +1012,7 @@ export function apply(ctx) {
     const deliverTool = {
       name: 'bus_deliver',
       description:
-        'Deliver a one-shot message to another registered DSH session (cross-session bus). Target MUST be a sessionId from bus_peers. Choose mode deliberately:\n- queue (default) — waits behind the recipient\'s current turn. Use for orders, status sync, notices, non-urgent follow-ups.\n- steer — inserted at the recipient\'s NEXT STEP boundary; it does not discard completed work, but the recipient sees your new direction earlier. Use when it is heading the wrong way or you have critical information it needs mid-run. Current-step work may be wasted, never lost.\n- abort — hard-stops the recipient\'s active turn (cancel; pending queue is kept). Side effects are NOT rolled back and there is no resume hook; use only when the recipient is stuck (e.g. a tool with no response). Disabled by default; enable per-session in the plugin settings. Requires reason.\nAsk yourself: if the recipient saw this after finishing, would that clearly waste work? Yes → steer; no → queue.\nIf the bus_* tools are unavailable (plugin not loaded), inspect the profile bundles; do NOT substitute list_agents (it lists only this session\'s own subagents).\nRelated: bus_peers (who exists), bus_wait_for (wait for external events), bus_list_waiting / bus_clear_waiting (manage your own waits).',
+        'Deliver a one-shot message to another registered DSH session (cross-session bus). Target MUST be a sessionId from bus_peers. Choose mode deliberately:\n- queue (default) — waits behind the recipient\'s current turn. Use for orders, status sync, notices, non-urgent follow-ups.\n- steer — inserted at the recipient\'s NEXT STEP boundary; it does not discard completed work, but the recipient sees your new direction earlier. Use when it is heading the wrong way or you have critical information it needs mid-run. Current-step work may be wasted, never lost.\n- abort — hard-stops the recipient\'s active turn (cancel; pending queue is kept). Side effects are NOT rolled back and there is no resume hook; use only when the recipient is stuck (e.g. a tool with no response). Disabled by default; enable per-session in the plugin settings. Requires reason.\nQueue deliveries MERGE: when this sender already has a pending block in the recipient\'s inbox, the new text is appended into that block instead of queueing another message, so the inbox holds at most one block per sender. Within a merged block, entries sharing the same ref are marked [旧] except the latest [最新]; old entries are never deleted. A steer also packs the recipient\'s pending ordinary queue blocks into one emergency message and removes them from the queue (only if it fits the size cap). The return reports agentStatus, inboxCount (messages the recipient still has to process), merged, and packed (number of backlog blocks folded into a steer). kind defaults to notice.\nAsk yourself: if the recipient saw this after finishing, would that clearly waste work? Yes → steer; no → queue.\nIf the bus_* tools are unavailable (plugin not loaded), inspect the profile bundles; do NOT substitute list_agents (it lists only this session\'s own subagents).\nRelated: bus_peers (who exists), bus_wait_for (wait for external events), bus_list_waiting / bus_clear_waiting (manage your own waits).',
       parameters: {
         type: 'object',
         properties: {
@@ -896,6 +1023,15 @@ export function apply(ctx) {
             type: 'string',
             enum: ['queue', 'steer', 'abort'],
             description: 'queue=after the current turn (default); steer=next step boundary, keeps completed work; abort=hard cancel, no rollback, disabled by default.'
+          },
+          kind: {
+            type: 'string',
+            enum: ['decision', 'blocker', 'handoff', 'notice'],
+            description: 'Message nature (default notice): decision=needs an answer; blocker=needs an action; handoff=material, no reply expected; notice=just informing. Receiver replies only to decision/blocker.'
+          },
+          ref: {
+            type: 'string',
+            description: 'Optional topic key for the same fact (e.g. "Whisperer#collider"). Within one merged block, entries sharing a ref are marked [旧] except the latest [最新]; old entries are never deleted.'
           },
           reason: { type: 'string', description: 'Why this delivery is urgent. Required for abort; shown verbatim in the recipient\'s message header. Omit for queue; optional for steer.' },
           resumeHint: { type: 'string', description: 'Where the recipient should resume if it changed course. Recommended with steer/abort; without it the recipient may not know where you interrupted.' }
@@ -910,13 +1046,19 @@ export function apply(ctx) {
         const sessionId = String(args && args.sessionId ? args.sessionId : '').trim();
         const text = String(args && args.text ? args.text : '').trim();
         if (sessionId === '' || text === '') throw new Error('bus_deliver: sessionId and text are required');
+        const refArg = args && typeof args.ref === 'string' ? args.ref.replace(/[|\]\n]/g, ' ').trim().slice(0, 120) : '';
+        const kindArg = args && typeof args.kind === 'string' ? args.kind : 'notice';
+        const kind = ['decision', 'blocker', 'handoff', 'notice'].includes(kindArg) ? kindArg : 'notice';
         const modeArg = args && typeof args.mode === 'string' ? args.mode : 'queue';
         const mode = modeArg === 'steer' || modeArg === 'abort' ? modeArg : 'queue';
         const reason = args && typeof args.reason === 'string' ? args.reason.trim() : '';
         const resumeHint = args && typeof args.resumeHint === 'string' ? args.resumeHint.trim() : '';
         if (mode === 'abort' && reason === '') throw new Error('bus_deliver: reason is required when mode=abort');
         const hop = Number.isFinite(Number(args.hop)) ? Number(args.hop) + 1 : 1;
-        const header = '[session-bus | ' + callerName(caller) + ' → ' + callerName(sessionId) + ' | session | ' + localTime(new Date()) + ']';
+        let header = '[session-bus | ' + callerName(caller) + ' → ' + callerName(sessionId) + ' | session | ' + localTime(new Date()) + ' | kind=' + kind;
+        if (refArg !== '') header += ' | ref=' + refArg;
+        if (mode === 'steer') header += ' | 紧急';
+        header += ']';
         const entry = await deliverOnce({
           eventId: 'evt-' + randomUUID(),
           sessionId,
@@ -926,10 +1068,25 @@ export function apply(ctx) {
           mode,
           reason,
           resumeHint,
+          kind,
+          ref: refArg,
           text: header + '\n' + text
         });
         if (!entry.ok) throw new Error('bus_deliver failed: ' + String(entry.reason || 'unknown'));
-        return { ok: true, sessionId, hop, mode: entry.mode, note: entry.note, request: entry };
+        return {
+          ok: true,
+          sessionId,
+          hop,
+          mode: entry.mode,
+          kind,
+          ref: refArg,
+          agentStatus: entry.agentStatus,
+          inboxCount: entry.inboxCount,
+          merged: entry.merged === true,
+          packed: entry.packed === 0 ? 0 : entry.packed === undefined ? 0 : entry.packed,
+          note: entry.note,
+          request: entry
+        };
       }
     };
 
