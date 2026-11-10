@@ -735,6 +735,7 @@ export function apply(ctx) {
       const waiting = readWaiting().waiting;
       return agents.map((agent) => ({
         ...agent,
+        memoryPool: typeof agent.memoryPool === 'string' ? agent.memoryPool : '',
         pendingWaits: waiting.filter((item) => item.sessionId === agent.sessionId).length,
         pendingMessages: livePendingMessages(agent.sessionId)
       }));
@@ -770,6 +771,7 @@ export function apply(ctx) {
         allowFrom: Array.isArray(input.allowFrom) ? input.allowFrom.map(String).filter(Boolean) : ['owner'],
         allowInterrupt: input.allowInterrupt !== false,
         allowAbort: input.allowAbort === true,
+        memoryPool: typeof input.memoryPool === 'string' ? input.memoryPool.trim() : '',
         enabled: input.enabled !== false,
         subscriptions: Array.isArray(input.subscriptions) ? input.subscriptions : [],
         updatedAt: isoNow(new Date())
@@ -997,11 +999,11 @@ export function apply(ctx) {
     const listAgentsTool = {
       name: 'bus_peers',
       description:
-        'Cross-session peers (session-bus). Lists OTHER DSH sessions registered on this machine — sessions run by the same human, not subagents of this session. Each entry reports status (idle|running), pendingWaits (external-event waits registered with bus_wait_for), and pendingMessages (inbox messages not processed yet; 0 when the session has no live agent). Use the counts to choose a delivery mode: status=idle -> queue (steer is meaningless); status=running and pendingMessages=0 -> queue (the session has no backlog, your message is next in line); status=running and pendingMessages>0 -> the session already has queued deliveries, so an important message sent as mode=steer reaches its next step boundary instead of waiting behind them. Use bus_deliver to message them; to wait for an external event use bus_wait_for. (Previously named bus_list_agents; renamed to avoid confusion with list_agents. The old waitingCount field is now pendingWaits, and is not a message count.)',
+        'Cross-session peers (session-bus). Lists OTHER DSH sessions registered on this machine — sessions run by the same human, not subagents of this session. Each entry reports status (idle|running), pendingWaits (external-event waits registered with bus_wait_for), and pendingMessages (inbox messages not processed yet; 0 when the session has no live agent). memoryPool is the session\'s own memory directory (where its decisions/backlog are recorded) — read it to recover context after compaction instead of asking. Use the counts to choose a delivery mode: status=idle -> queue (steer is meaningless); status=running and pendingMessages=0 -> queue (the session has no backlog, your message is next in line); status=running and pendingMessages>0 -> the session already has queued deliveries, so an important message sent as mode=steer reaches its next step boundary instead of waiting behind them. Use bus_deliver to message them; to wait for an external event use bus_wait_for. (Previously named bus_list_agents; renamed to avoid confusion with list_agents. The old waitingCount field is now pendingWaits, and is not a message count.)',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       output,
       execute: async () => ({
-        agents: adminListAgents().map(({ sessionId, name, role, knows, enabled, allowFrom, allowInterrupt, allowAbort, pendingWaits, pendingMessages }) => ({
+        agents: adminListAgents().map(({ sessionId, name, role, knows, enabled, allowFrom, allowInterrupt, allowAbort, memoryPool, pendingWaits, pendingMessages }) => ({
           sessionId,
           name,
           role,
@@ -1010,6 +1012,7 @@ export function apply(ctx) {
           allowFrom,
           allowInterrupt: allowInterrupt !== false,
           allowAbort: allowAbort === true,
+          memoryPool: typeof memoryPool === 'string' ? memoryPool : '',
           pendingWaits: Number(pendingWaits) || 0,
           pendingMessages: Number(pendingMessages) || 0,
           status: String(liveAgentStatus(sessionId) || 'unknown')

@@ -32,6 +32,7 @@ const ZH = {
   'agents.knows': '知道什么（逗号分隔）',
   'agents.allowFrom': '可被谁唤醒（逗号分隔，owner / 会话 ID / *）',
   'agents.allowAbort': '允许别的会话硬中止（abort；默认关闭）',
+  'agents.memoryPool': '记忆池路径（压缩后从哪恢复）',
   'agents.subscriptions': '长期订阅（JSON 数组，可空）',
   'agents.save': '保存',
   'agents.cancel': '取消',
@@ -84,6 +85,7 @@ const EN = {
   'agents.knows': 'Knows (comma separated)',
   'agents.allowFrom': 'Allow wake-ups from (owner / session id / *)',
   'agents.allowAbort': 'Allow hard abort by other sessions (default off)',
+  'agents.memoryPool': 'Memory pool path (where to recover after compaction)',
   'agents.subscriptions': 'Long-term subscriptions (JSON array, may be empty)',
   'agents.save': 'Save',
   'agents.cancel': 'Cancel',
@@ -234,7 +236,7 @@ function SessionBusSettings(props) {
 
   function startCreate() {
     setForm('create');
-    setDraft({ sessionId: '', name: '', role: '', knows: '', allowFrom: 'owner', enabled: true, allowAbort: false, subscriptions: '[]' });
+    setDraft({ sessionId: '', name: '', role: '', knows: '', allowFrom: 'owner', enabled: true, allowAbort: false, memoryPool: '', subscriptions: '[]' });
   }
 
   function startEdit(agent) {
@@ -247,6 +249,7 @@ function SessionBusSettings(props) {
       allowFrom: (agent.allowFrom || ['owner']).join(', '),
       enabled: agent.enabled !== false,
       allowAbort: agent.allowAbort === true,
+      memoryPool: agent.memoryPool || '',
       subscriptions: JSON.stringify(agent.subscriptions || [], null, 2)
     });
   }
@@ -285,6 +288,7 @@ function SessionBusSettings(props) {
       allowFrom: parseList(draft.allowFrom),
       enabled: draft.enabled !== false,
       allowAbort: draft.allowAbort === true,
+      memoryPool: String(draft.memoryPool || '').trim(),
       subscriptions
     };
     await run(async function () {
@@ -386,6 +390,7 @@ function SessionBusSettings(props) {
             field(t('agents.role'), 'role'),
             field(t('agents.knows'), 'knows'),
             field(t('agents.allowFrom'), 'allowFrom'),
+            field(t('agents.memoryPool'), 'memoryPool'),
             field(t('agents.subscriptions'), 'subscriptions', { multiline: true }),
             h(
               'label',
