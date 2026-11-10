@@ -33,6 +33,10 @@ const ZH = {
   'agents.allowFrom': '可被谁唤醒（逗号分隔，owner / 会话 ID / *）',
   'agents.allowAbort': '允许别的会话硬中止（abort；默认关闭）',
   'agents.memoryPool': '记忆池路径（压缩后从哪恢复）',
+  'agents.memoryPoolUnset': '未设置',
+  'agents.memoryPoolMissing': '路径不存在',
+  'agents.copy': '复制',
+  'agents.copied': '已复制',
   'agents.subscriptions': '长期订阅（JSON 数组，可空）',
   'agents.save': '保存',
   'agents.cancel': '取消',
@@ -86,6 +90,10 @@ const EN = {
   'agents.allowFrom': 'Allow wake-ups from (owner / session id / *)',
   'agents.allowAbort': 'Allow hard abort by other sessions (default off)',
   'agents.memoryPool': 'Memory pool path (where to recover after compaction)',
+  'agents.memoryPoolUnset': 'not set',
+  'agents.memoryPoolMissing': 'path not found',
+  'agents.copy': 'copy',
+  'agents.copied': 'copied',
   'agents.subscriptions': 'Long-term subscriptions (JSON array, may be empty)',
   'agents.save': 'Save',
   'agents.cancel': 'Cancel',
@@ -186,6 +194,17 @@ function SessionBusSettings(props) {
   const [now, setNow] = React.useState(Date.now());
   const [guard, setGuard] = React.useState({});
   const [confirmDelete, setConfirmDelete] = React.useState(null);
+  const [copiedPath, setCopiedPath] = React.useState('');
+
+  function copyPath(path) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(path);
+    } catch (_error) {}
+    setCopiedPath(path);
+    setTimeout(function () {
+      setCopiedPath('');
+    }, 1500);
+  }
 
   async function load() {
     setError(null);
@@ -443,6 +462,16 @@ function SessionBusSettings(props) {
                 h('span', { style: Object.assign({}, MUTED, { marginLeft: 'auto' }) }, (disabled ? t('agents.disabled') : t('agents.enabled')) + ' · ' + String(agent.pendingWaits || 0) + ' ' + t('agents.waiting') + ' · ' + String(agent.pendingMessages || 0) + ' ' + t('agents.pendingMessages'))
               ),
               agent.role ? h('div', { style: MUTED }, agent.role) : null,
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
+                h('span', null, t('agents.memoryPool')),
+                agent.memoryPool
+                  ? h('code', { title: agent.memoryPool, style: { wordBreak: 'break-all', fontFamily: 'monospace', color: 'var(--dsw-alias-label-primary)' } }, agent.memoryPool)
+                  : h('span', null, t('agents.memoryPoolUnset')),
+                agent.memoryPool ? h('button', { type: 'button', style: BUTTON, onClick: function () { copyPath(agent.memoryPool); } }, copiedPath === agent.memoryPool ? t('agents.copied') : t('agents.copy')) : null,
+                agent.memoryPool && agent.memoryPoolExists === false ? h('span', { style: { color: 'var(--dsw-alias-label-warning, #d97706)' } }, t('agents.memoryPoolMissing')) : null
+              ),
               h(
                 'div',
                 { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },

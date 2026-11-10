@@ -736,6 +736,15 @@ export function apply(ctx) {
       return agents.map((agent) => ({
         ...agent,
         memoryPool: typeof agent.memoryPool === 'string' ? agent.memoryPool : '',
+        memoryPoolExists: (() => {
+          const pool = typeof agent.memoryPool === 'string' ? agent.memoryPool : '';
+          if (pool === '') return null;
+          try {
+            return existsSync(pool);
+          } catch (_error) {
+            return false;
+          }
+        })(),
         pendingWaits: waiting.filter((item) => item.sessionId === agent.sessionId).length,
         pendingMessages: livePendingMessages(agent.sessionId)
       }));
