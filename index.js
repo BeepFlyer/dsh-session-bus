@@ -600,8 +600,19 @@ export function apply(ctx) {
       const waiting = readWaiting().waiting;
       return agents.map((agent) => ({
         ...agent,
-        waitingCount: waiting.filter((item) => item.sessionId === agent.sessionId).length
+        pendingWaits: waiting.filter((item) => item.sessionId === agent.sessionId).length,
+        pendingMessages: livePendingMessages(agent.sessionId)
       }));
+    }
+
+    function livePendingMessages(sessionId) {
+      try {
+        const live = c.agents.get(sessionId);
+        if (live === undefined || live === null) return 0;
+        return live.inbox.nextTurn.length + live.inbox.nextStep.length;
+      } catch (_error) {
+        return 0;
+      }
     }
 
     function liveAgentStatus(sessionId) {
@@ -851,11 +862,11 @@ export function apply(ctx) {
     const listAgentsTool = {
       name: 'bus_peers',
       description:
-        'Cross-session peers (session-bus). Lists OTHER DSH sessions registered on this machine — sessions run by the same human, not subagents of this session. Each entry reports status (idle|running), which you should check before a directional delivery. Use bus_deliver to message them; to wait for an external event use bus_wait_for. (Previously named bus_list_agents; renamed to avoid confusion with list_agents.)',
+        'Cross-session peers (session-bus). Lists OTHER DSH sessions registered on this machine — sessions run by the same human, not subagents of this session. Each entry reports status (idle|running), pendingWaits (external-event waits registered with bus_wait_for), and pendingMessages (inbox messages not processed yet; 0 when the session has no live agent). Use the counts to choose a delivery mode: status=idle -> queue (steer is meaningless); status=running and pendingMessages=0 -> queue (the session has no backlog, your message is next in line); status=running and pendingMessages>0 -> the session already has queued deliveries, so an important message sent as mode=steer reaches its next step boundary instead of waiting behind them. Use bus_deliver to message them; to wait for an external event use bus_wait_for. (Previously named bus_list_agents; renamed to avoid confusion with list_agents. The old waitingCount field is now pendingWaits, and is not a message count.)',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       output,
       execute: async () => ({
-        agents: adminListAgents().map(({ sessionId, name, role, knows, enabled, allowFrom, allowInterrupt, allowAbort, waitingCount }) => ({
+        agents: adminListAgents().map(({ sessionId, name, role, knows, enabled, allowFrom, allowInterrupt, allowAbort, pendingWaits, pendingMessages }) => ({
           sessionId,
           name,
           role,
@@ -864,7 +875,8 @@ export function apply(ctx) {
           allowFrom,
           allowInterrupt: allowInterrupt !== false,
           allowAbort: allowAbort === true,
-          waitingCount,
+          pendingWaits: Number(pendingWaits) || 0,
+          pendingMessages: Number(pendingMessages) || 0,
           status: String(liveAgentStatus(sessionId) || 'unknown')
         }))
       })

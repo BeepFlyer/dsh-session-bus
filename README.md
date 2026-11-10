@@ -119,7 +119,7 @@ curl -s -X POST http://127.0.0.1:<端口>/api/session-bus/signal \
 | POST | `/api/session-bus/signal` | 观察入窗（3s），返回 `{observationId, windowClosesAt, windowSize}` |
 | POST | `/api/session-bus/deliver` | owner 直接投递 |
 | POST | `/api/session-bus/admin` | 脚本用 admin |
-| GET | `/api/session-bus/agents` | 注册表（含 waitingCount） |
+| GET | `/api/session-bus/agents` | 注册表（含状态、pendingWaits / pendingMessages 计数） |
 | GET | `/api/session-bus/waiting` | 等待项 |
 | GET | `/api/session-bus/log?limit=50` | 最近投递 |
 
@@ -138,6 +138,9 @@ curl -s -X POST http://127.0.0.1:<端口>/api/session-bus/signal \
 | `bus_clear_waiting` | 等到了、或者不想等了 | 清掉（不传 id 清全部） |
 
 ### 会话怎么"登记自己"
+
+> 字段迁移：旧 `waitingCount` 已改名为 `pendingWaits`（bus_wait_for 等待项数）；新增 `pendingMessages` 表示 inbox 未处理消息数。
+> 如果你的代码读 `waitingCount`，改用 `pendingWaits`。
 
 没有单独的注册工具——**第一次调 `bus_peers` 时，如果发现列表里没有你，就给自己登记一次**：
 

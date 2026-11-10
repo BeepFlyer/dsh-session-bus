@@ -24,6 +24,7 @@ const ZH = {
   'agents.enable': '启用',
   'agents.disable': '停用',
   'agents.waiting': '等待项',
+  'agents.pendingMessages': '排队消息',
   'agents.empty': '还没有登记任何会话。',
   'agents.name': '名字',
   'agents.sessionId': '会话 ID',
@@ -75,6 +76,7 @@ const EN = {
   'agents.enable': 'Enable',
   'agents.disable': 'Disable',
   'agents.waiting': 'waits',
+  'agents.pendingMessages': 'queued',
   'agents.empty': 'No sessions registered yet.',
   'agents.name': 'Name',
   'agents.sessionId': 'Session id',
@@ -433,7 +435,7 @@ function SessionBusSettings(props) {
                 { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
                 h('strong', { style: { fontSize: 13 } }, agent.name || agent.sessionId),
                 h('span', { style: MUTED }, agent.sessionId),
-                h('span', { style: Object.assign({}, MUTED, { marginLeft: 'auto' }) }, (disabled ? t('agents.disabled') : t('agents.enabled')) + ' · ' + String(agent.waitingCount || 0) + ' ' + t('agents.waiting'))
+                h('span', { style: Object.assign({}, MUTED, { marginLeft: 'auto' }) }, (disabled ? t('agents.disabled') : t('agents.enabled')) + ' · ' + String(agent.pendingWaits || 0) + ' ' + t('agents.waiting') + ' · ' + String(agent.pendingMessages || 0) + ' ' + t('agents.pendingMessages'))
               ),
               agent.role ? h('div', { style: MUTED }, agent.role) : null,
               h(
