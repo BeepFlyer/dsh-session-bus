@@ -15,6 +15,8 @@ const INBOX_DIR = path.join(BUS_DIR, 'inbox');
 const AGENTS_FILE = path.join(BUS_DIR, 'agents.json');
 const WAITING_FILE = path.join(BUS_DIR, 'waiting.json');
 const DELIVERIES_FILE = path.join(BUS_DIR, 'deliveries.jsonl');
+const RECENT_DIR = path.join(BUS_DIR, 'state');
+const RECENT_FILE = path.join(RECENT_DIR, 'recent.jsonl');
 const SETTINGS_FILE = path.join(BUS_DIR, 'settings.json');
 const TOKEN_FILE = path.join(here, 'token.txt');
 
@@ -56,6 +58,8 @@ function withStoreLock(fn) {
 
 function ensureStore() {
   mkdirSync(INBOX_DIR, { recursive: true });
+  mkdirSync(RECENT_DIR, { recursive: true });
+  if (!existsSync(RECENT_FILE)) writeFileSync(RECENT_FILE, '', 'utf8');
   if (!existsSync(AGENTS_FILE)) writeFileSync(AGENTS_FILE, JSON.stringify({ version: 1, agents: [] }, null, 2) + '\n', 'utf8');
   if (!existsSync(WAITING_FILE)) writeFileSync(WAITING_FILE, JSON.stringify({ version: 1, waiting: [] }, null, 2) + '\n', 'utf8');
   if (!existsSync(DELIVERIES_FILE)) writeFileSync(DELIVERIES_FILE, '', 'utf8');
@@ -68,6 +72,30 @@ function readJson(file, fallback) {
     return parsed !== null && typeof parsed === 'object' ? parsed : fallback;
   } catch (_error) {
     return fallback;
+  }
+}
+
+function appendRecent(record) {
+  try {
+    appendFileSync(RECENT_FILE, JSON.stringify(record) + '\n', 'utf8');
+  } catch (_error) {}
+}
+
+function readRecentRecords() {
+  try {
+    return readFileSync(RECENT_FILE, 'utf8')
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch (_error) {
+          return null;
+        }
+      })
+      .filter((value) => value !== null && typeof value === 'object');
+  } catch (_error) {
+    return [];
   }
 }
 
@@ -577,6 +605,7 @@ export function apply(ctx) {
           content: [{ type: 'text', text }],
           source
         };
+        let deliveredBlockId = message.id;
         if (effectiveMode === 'steer') agent.steer(message);
         else if (effectiveMode === 'abort') {
           agent.cancel({ kind: 'user' }, { keepInbox: true });
@@ -597,6 +626,7 @@ export function apply(ctx) {
                 source: block.source
               };
               agent.inbox.replace(block.id, replacement);
+              deliveredBlockId = block.id;
               entry.merged = true;
             } else agent.followup(message);
           } else {
@@ -614,6 +644,17 @@ export function apply(ctx) {
         entry.flushed = (await sessions.flush(agent.session)) === true;
         entry.ok = entry.flushed === true;
         if (!entry.ok) entry.reason = 'flush-failed';
+        appendRecent({
+          id: 'recent-' + randomUUID(),
+          at: isoNow(new Date()),
+          from: String(options.from || 'owner'),
+          to: options.sessionId,
+          blockId: deliveredBlockId,
+          kind: entry.kind,
+          mode: effectiveMode,
+          ref: typeof options.ref === 'string' ? options.ref : '',
+          summary: String(options.text || '').replace(/\s+/g, ' ').slice(0, 220)
+        });
       } catch (error) {
         entry.reason = (error && error.code) || 'prompt-failed';
         if (entry.reason === 'prompt-failed') entry.reason = 'prompt-failed: ' + String((error && error.message) || error);
@@ -1110,6 +1151,82 @@ export function apply(ctx) {
       }
     };
 
+    const recentTool = {
+      name: 'bus_recent',
+      description:
+        'Look back at deliveries THIS session sent on the session bus and whether each is still pending in the recipient inbox. Merged deliveries share one blockId; membership is checked by blockId, not by each original message id. Reads only a LIVE agent inbox: a session without a live agent is reported as unknown and is NOT woken (bus_recent never calls resolveAgent). Use it before sending again: if the thing is already pending, do not repeat it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sessionId: {
+            type: 'string',
+            description: 'Peer to inspect (a sessionId from bus_peers). Omit to inspect deliveries to every peer.'
+          },
+          limit: {
+            type: 'number',
+            description: 'How many most recent deliveries to inspect, 1-30; default 10.'
+          }
+        },
+        additionalProperties: false
+      },
+      output,
+      execute: async (args, exec) => {
+        const caller = callerOf(exec);
+        if (caller === null) throw new Error('bus_recent: no calling session');
+        const target = args && typeof args.sessionId === 'string' ? args.sessionId.trim() : '';
+        const requested = Number(args && args.limit);
+        const limit = Number.isFinite(requested) ? Math.min(30, Math.max(1, Math.trunc(requested))) : 10;
+        const records = readRecentRecords().filter((record) => record.from === caller && (target === '' || record.to === target));
+        const selected = records.slice(-limit).reverse();
+        const liveCache = new Map();
+        const pendingByBlock = new Map();
+        const pending = [];
+        const taken = [];
+        const unknownByTarget = new Map();
+        for (const record of selected) {
+          let live = liveCache.get(record.to);
+          if (live === undefined) {
+            try {
+              live = c.agents.get(record.to) || null;
+            } catch (_error) {
+              live = null;
+            }
+            liveCache.set(record.to, live);
+          }
+          const base = {
+            at: record.at,
+            to: record.to,
+            kind: record.kind,
+            ref: record.ref || '',
+            blockId: record.blockId,
+            summary: record.summary
+          };
+          if (live === null) {
+            const previous = unknownByTarget.get(record.to) || { to: record.to, count: 0, note: 'no live agent; not woken' };
+            previous.count += 1;
+            unknownByTarget.set(record.to, previous);
+            continue;
+          }
+          const ids = new Set([...live.inbox.nextTurn, ...live.inbox.nextStep].map((message) => message.id));
+          if (ids.has(record.blockId)) {
+            if (!pendingByBlock.has(record.blockId)) pendingByBlock.set(record.blockId, { blockId: record.blockId, to: record.to, entries: [] });
+            pendingByBlock.get(record.blockId).entries.push(base);
+          } else {
+            taken.push(Object.assign({ status: 'taken' }, base));
+          }
+        }
+        for (const value of pendingByBlock.values()) pending.push(value);
+        return {
+          ok: true,
+          target: target === '' ? null : target,
+          limit,
+          pending,
+          taken,
+          unknown: [...unknownByTarget.values()]
+        };
+      }
+    };
+
     const waitTool = {
       name: 'bus_wait_for',
       description:
@@ -1210,6 +1327,7 @@ export function apply(ctx) {
     });
     c.effect(() => c.tools.register(listAgentsTool));
     c.effect(() => c.tools.register(deliverTool));
+    c.effect(() => c.tools.register(recentTool));
     c.effect(() => c.tools.register(waitTool));
     c.effect(() => c.tools.register(listWaitingTool));
     c.effect(() => c.tools.register(clearWaitingTool));
