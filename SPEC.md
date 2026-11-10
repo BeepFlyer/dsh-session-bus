@@ -322,13 +322,13 @@ B，B 没放行 A，回信无路）。
 
 | 工具 | 入参 | 用途 |
 |---|---|---|
-| `bus_list_agents` | 无 | 列出所有注册会话（含 role / knows / waiting 数） |
+| `bus_peers` | 无 | 列出所有注册会话（含 role / knows / waiting 数） |
 | `bus_deliver` | `{sessionId, text, hop?}` | 主动投递给别的会话 |
 | `bus_wait_for` | `{source, match, reason, ttlSeconds?, consume?}` | 登记一个等待项 |
 | `bus_list_waiting` | 无 | 看自己在等什么 |
 | `bus_clear_waiting` | `{id?}` | 清掉等待项（不传 id = 清自己的全部） |
 
-**`bus_list_agents` 是「身份信息的读者是 AI」这条需求的落地**——让会话能决定"这活派给谁"。
+**`bus_peers` 是「身份信息的读者是 AI」这条需求的落地**——让会话能决定"这活派给谁"。
 
 ### 8.3 设置页
 
@@ -385,7 +385,7 @@ Wiki维护者 · 等 wiki 相关文件 · 剩 3 分钟 · [清除]
 2. `agents.json` / `waiting.json` 读写 + 全局写锁
 3. `/deliver` 路由 → `prompt()` → `flush()` → 审计
 4. `/signal` 路由 → 简单匹配（`ownerOnly` / `type` / `textContains`）→ 投递
-5. 会话侧工具：`bus_deliver` / `bus_wait_for` / `bus_list_agents`
+5. 会话侧工具：`bus_deliver` / `bus_wait_for` / `bus_peers`
 6. 护栏：TTL + 跳数 + 单会话串行
 
 ### P1

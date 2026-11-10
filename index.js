@@ -304,7 +304,7 @@ export function apply(ctx) {
     });
   };
 
-  ctx.inject(['webServer', 'connection', 'tools', 'sessions', 'sessionController'], (c) => {
+  ctx.inject(['webServer', 'connection', 'tools', 'agents', 'sessions', 'sessionController'], (c) => {
     const controller = c.sessionController;
     const sessions = c.sessions;
     const log = (message) => {
@@ -352,6 +352,24 @@ export function apply(ctx) {
       }
     }
 
+    const interruptMarks = new Map();
+    const STEER_LIMIT_PER_MINUTE = 10;
+    const ABORT_LIMIT_PER_MINUTE = 3;
+
+    function reserveInterrupt(kind, sessionId) {
+      const key = kind + ':' + sessionId;
+      const now = Date.now();
+      const fresh = (interruptMarks.get(key) || []).filter((at) => now - at < 60000);
+      const limit = kind === 'abort' ? ABORT_LIMIT_PER_MINUTE : STEER_LIMIT_PER_MINUTE;
+      if (fresh.length >= limit) {
+        interruptMarks.set(key, fresh);
+        return false;
+      }
+      fresh.push(now);
+      interruptMarks.set(key, fresh);
+      return true;
+    }
+
     async function deliverOnce(options) {
       const settings = readSettings();
       const entry = {
@@ -364,7 +382,10 @@ export function apply(ctx) {
         flushed: false,
         reason: null,
         source: options.source || null,
-        renderSource: options.from === 'owner' ? 'webhook' : 'agent-message'
+        renderSource: options.from === 'owner' ? 'webhook' : 'agent-message',
+        mode: options.mode === 'steer' || options.mode === 'abort' ? options.mode : 'queue',
+        agentStatus: null,
+        note: null
       };
       if (options.hop > settings.maxHop) {
         entry.reason = 'hop-exceeded';
@@ -404,12 +425,56 @@ export function apply(ctx) {
               ruleId: 'session-bus',
               summary: options.text.replace(/\s+/g, ' ').slice(0, 120)
             };
-        agent.followup({
+        const requestedMode = options.mode === 'steer' || options.mode === 'abort' ? options.mode : 'queue';
+        const reasonText = typeof options.reason === 'string' ? options.reason.trim() : '';
+        const resumeText = typeof options.resumeHint === 'string' ? options.resumeHint.trim() : '';
+        let effectiveMode = requestedMode;
+        let note = null;
+        if (requestedMode !== 'queue') {
+          entry.agentStatus = agent.status;
+          const allowSteer = !(target && target.allowInterrupt === false);
+          const allowAbort = !!(target && target.allowAbort === true);
+          if (requestedMode === 'abort' && reasonText === '') {
+            effectiveMode = 'queue';
+            note = 'abort requires reason; delivered as queue.';
+          } else if (requestedMode === 'abort' && !allowAbort) {
+            effectiveMode = 'queue';
+            note = 'abort is disabled for this session; delivered as queue.';
+          } else if (requestedMode === 'steer' && !allowSteer) {
+            effectiveMode = 'queue';
+            note = 'steer is disabled for this session; delivered as queue.';
+          } else if (agent.status !== 'running') {
+            effectiveMode = 'queue';
+            note = 'target is idle; delivered as queue.';
+          } else if (!reserveInterrupt(requestedMode, options.sessionId)) {
+            effectiveMode = 'queue';
+            note = requestedMode + ' rate limit reached; delivered as queue.';
+          }
+        }
+        let text = options.text;
+        if (effectiveMode === 'steer') {
+          text += '\n[steer] 这条消息插在对方下一个步骤边界：当前步骤的工作可能白做，但不会丢失。';
+          if (reasonText !== '') text += ' 理由：' + reasonText;
+          if (resumeText !== '') text += ' 建议继续：' + resumeText;
+        } else if (effectiveMode === 'abort') {
+          text += '\n[abort] 已硬中止对方当前活动：工具副作用不会回滚，也没有恢复钩子。';
+          text += ' 理由：' + reasonText;
+          if (resumeText !== '') text += ' 建议继续：' + resumeText;
+        }
+        if (note !== null) text += '\n[bus] ' + note;
+        const message = {
           id: randomUUID(),
           role: 'user',
-          content: [{ type: 'text', text: options.text }],
+          content: [{ type: 'text', text }],
           source
-        });
+        };
+        if (effectiveMode === 'steer') agent.steer(message);
+        else if (effectiveMode === 'abort') {
+          agent.cancel({ kind: 'user' }, { keepInbox: true });
+          agent.followup(message);
+        } else agent.followup(message);
+        entry.mode = effectiveMode;
+        entry.note = note;
         entry.accepted = true;
         entry.flushed = (await sessions.flush(agent.session)) === true;
         entry.ok = entry.flushed === true;
@@ -539,6 +604,15 @@ export function apply(ctx) {
       }));
     }
 
+    function liveAgentStatus(sessionId) {
+      try {
+        const live = c.agents.get(sessionId);
+        return live !== undefined && live !== null ? live.status : 'idle';
+      } catch (_error) {
+        return 'unknown';
+      }
+    }
+
     function normalizeAgent(input) {
       const sessionId = typeof input.sessionId === 'string' ? input.sessionId.trim() : '';
       if (sessionId === '') throw Object.assign(new Error('sessionId required'), { code: 'bad-request' });
@@ -548,6 +622,8 @@ export function apply(ctx) {
         role: typeof input.role === 'string' ? input.role : '',
         knows: Array.isArray(input.knows) ? input.knows.map(String).filter(Boolean) : [],
         allowFrom: Array.isArray(input.allowFrom) ? input.allowFrom.map(String).filter(Boolean) : ['owner'],
+        allowInterrupt: input.allowInterrupt !== false,
+        allowAbort: input.allowAbort === true,
         enabled: input.enabled !== false,
         subscriptions: Array.isArray(input.subscriptions) ? input.subscriptions : [],
         updatedAt: isoNow(new Date())
@@ -773,22 +849,44 @@ export function apply(ctx) {
     }
 
     const listAgentsTool = {
-      name: 'bus_list_agents',
-      description: 'List the DSH sessions registered on the local session bus, with role, capabilities, allowFrom, and pending waits.',
+      name: 'bus_peers',
+      description:
+        'Cross-session peers (session-bus). Lists OTHER DSH sessions registered on this machine — sessions run by the same human, not subagents of this session. Each entry reports status (idle|running), which you should check before a directional delivery. Use bus_deliver to message them; to wait for an external event use bus_wait_for. (Previously named bus_list_agents; renamed to avoid confusion with list_agents.)',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       output,
-      execute: async () => ({ agents: adminListAgents().map(({ sessionId, name, role, knows, enabled, allowFrom, waitingCount }) => ({ sessionId, name, role, knows, enabled, allowFrom, waitingCount })) })
+      execute: async () => ({
+        agents: adminListAgents().map(({ sessionId, name, role, knows, enabled, allowFrom, allowInterrupt, allowAbort, waitingCount }) => ({
+          sessionId,
+          name,
+          role,
+          knows,
+          enabled,
+          allowFrom,
+          allowInterrupt: allowInterrupt !== false,
+          allowAbort: allowAbort === true,
+          waitingCount,
+          status: String(liveAgentStatus(sessionId) || 'unknown')
+        }))
+      })
     };
 
     const deliverTool = {
       name: 'bus_deliver',
-      description: 'Deliver a short message to another registered DSH session through the session bus. It arrives as a normal user message, queued behind any running turn; pass a file path instead of a long payload.',
+      description:
+        'Deliver a one-shot message to another registered DSH session (cross-session bus). Target MUST be a sessionId from bus_peers. Choose mode deliberately:\n- queue (default) — waits behind the recipient\'s current turn. Use for orders, status sync, notices, non-urgent follow-ups.\n- steer — inserted at the recipient\'s NEXT STEP boundary; it does not discard completed work, but the recipient sees your new direction earlier. Use when it is heading the wrong way or you have critical information it needs mid-run. Current-step work may be wasted, never lost.\n- abort — hard-stops the recipient\'s active turn (cancel; pending queue is kept). Side effects are NOT rolled back and there is no resume hook; use only when the recipient is stuck (e.g. a tool with no response). Disabled by default; enable per-session in the plugin settings. Requires reason.\nAsk yourself: if the recipient saw this after finishing, would that clearly waste work? Yes → steer; no → queue.\nIf the bus_* tools are unavailable (plugin not loaded), inspect the profile bundles; do NOT substitute list_agents (it lists only this session\'s own subagents).\nRelated: bus_peers (who exists), bus_wait_for (wait for external events), bus_list_waiting / bus_clear_waiting (manage your own waits).',
       parameters: {
         type: 'object',
         properties: {
-          sessionId: { type: 'string', description: 'Target session id (see bus_list_agents).' },
-          text: { type: 'string', description: 'Short message or a pointer to a workspace file.' },
-          hop: { type: 'number', description: 'Current hop count of this wake-up chain; omit for a fresh delivery.' }
+          sessionId: { type: 'string', description: 'Target session id returned by bus_peers. Do not invent ids or take them from list_agents output.' },
+          text: { type: 'string', description: 'Short message, or a workspace file path to hand off. Keep it short; details belong in the file.' },
+          hop: { type: 'number', description: 'Wake-up chain hop. Omit for a fresh delivery; a relay forwarding a wake-up must pass the hop it received so the bus can stop loops (max-hop).' },
+          mode: {
+            type: 'string',
+            enum: ['queue', 'steer', 'abort'],
+            description: 'queue=after the current turn (default); steer=next step boundary, keeps completed work; abort=hard cancel, no rollback, disabled by default.'
+          },
+          reason: { type: 'string', description: 'Why this delivery is urgent. Required for abort; shown verbatim in the recipient\'s message header. Omit for queue; optional for steer.' },
+          resumeHint: { type: 'string', description: 'Where the recipient should resume if it changed course. Recommended with steer/abort; without it the recipient may not know where you interrupted.' }
         },
         required: ['sessionId', 'text'],
         additionalProperties: false
@@ -800,6 +898,11 @@ export function apply(ctx) {
         const sessionId = String(args && args.sessionId ? args.sessionId : '').trim();
         const text = String(args && args.text ? args.text : '').trim();
         if (sessionId === '' || text === '') throw new Error('bus_deliver: sessionId and text are required');
+        const modeArg = args && typeof args.mode === 'string' ? args.mode : 'queue';
+        const mode = modeArg === 'steer' || modeArg === 'abort' ? modeArg : 'queue';
+        const reason = args && typeof args.reason === 'string' ? args.reason.trim() : '';
+        const resumeHint = args && typeof args.resumeHint === 'string' ? args.resumeHint.trim() : '';
+        if (mode === 'abort' && reason === '') throw new Error('bus_deliver: reason is required when mode=abort');
         const hop = Number.isFinite(Number(args.hop)) ? Number(args.hop) + 1 : 1;
         const header = '[session-bus | ' + callerName(caller) + ' → ' + callerName(sessionId) + ' | session | ' + localTime(new Date()) + ']';
         const entry = await deliverOnce({
@@ -808,24 +911,28 @@ export function apply(ctx) {
           from: caller,
           source: 'session',
           hop,
+          mode,
+          reason,
+          resumeHint,
           text: header + '\n' + text
         });
         if (!entry.ok) throw new Error('bus_deliver failed: ' + String(entry.reason || 'unknown'));
-        return { ok: true, sessionId, hop, request: entry };
+        return { ok: true, sessionId, hop, mode: entry.mode, note: entry.note, request: entry };
       }
     };
 
     const waitTool = {
       name: 'bus_wait_for',
-      description: 'Register a one-shot wait on the session bus: when a matching external signal arrives, this session is woken with a short pointer message. Waits expire automatically.',
+      description:
+        'Register a one-shot wait on the session bus: when a matching EXTERNAL signal arrives (for example a Feishu message routed to this session), this session is woken with a short pointer. Use it instead of busy-polling for an out-of-band event. Do NOT use it to wait for another session\'s reply — contact sessions with bus_deliver and inspect them with bus_peers. Waits expire automatically; manage them with bus_list_waiting and bus_clear_waiting.',
       parameters: {
         type: 'object',
         properties: {
-          source: { type: 'string', description: 'Signal source to wait for, e.g. feishu.' },
-          match: { type: 'object', description: 'Match rules; omitted fields do not restrict. Example: {ownerOnly:true, type:"image", textContains:["鲸鱼"]}.', additionalProperties: true },
-          reason: { type: 'string', description: 'Human-readable reason shown in the settings page and the wake-up message.' },
-          ttlSeconds: { type: 'number', description: 'Lifetime in seconds; defaults to 1800.' },
-          consume: { type: 'string', enum: ['once'], description: 'Consumption mode; only once is supported.' }
+          source: { type: 'string', description: 'Signal source to wait for. Ask which sources this bus exposes; e.g. feishu. A wait for an unknown source never fires.' },
+          match: { type: 'object', description: 'Match rules; omitted fields do not restrict. Example: {ownerOnly:true, type:"image", textContains:["鲸鱼"]}. Keep it as narrow as the event allows.', additionalProperties: true },
+          reason: { type: 'string', description: 'One sentence shown in the settings page and the wake-up message; helps the human understand why this session is parked.' },
+          ttlSeconds: { type: 'number', description: 'Lifetime in seconds; defaults to the bus setting (1800). Keep it short unless the external event is known to be slow.' },
+          consume: { type: 'string', enum: ['once'], description: 'Consumption mode; only once is supported — omit it.' }
         },
         required: ['source'],
         additionalProperties: false
@@ -861,7 +968,8 @@ export function apply(ctx) {
 
     const listWaitingTool = {
       name: 'bus_list_waiting',
-      description: 'List the waits this session registered on the session bus.',
+      description:
+        'List the waits THIS session registered on the session bus (never other sessions\'). Use it before bus_clear_waiting to find the id you want to remove, or to check whether an external-event wait is still pending or about to expire.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       output,
       execute: async (_args, exec) => {
@@ -873,7 +981,8 @@ export function apply(ctx) {
 
     const clearWaitingTool = {
       name: 'bus_clear_waiting',
-      description: 'Clear waits registered by this session. Omit id to clear all of them.',
+      description:
+        'Clear waits registered by THIS session. Omit id to clear all of them; pass an id from bus_list_waiting to clear one. Use it when the event you were waiting for no longer matters — an expired or stale wait is harmless, but a forgotten wait still wakes you later.',
       parameters: { type: 'object', properties: { id: { type: 'string', description: 'Specific wait id; omitted clears every wait of this session.' } }, additionalProperties: false },
       output,
       execute: async (args, exec) => {

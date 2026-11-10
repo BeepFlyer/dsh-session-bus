@@ -30,6 +30,7 @@ const ZH = {
   'agents.role': '职责',
   'agents.knows': '知道什么（逗号分隔）',
   'agents.allowFrom': '可被谁唤醒（逗号分隔，owner / 会话 ID / *）',
+  'agents.allowAbort': '允许别的会话硬中止（abort；默认关闭）',
   'agents.subscriptions': '长期订阅（JSON 数组，可空）',
   'agents.save': '保存',
   'agents.cancel': '取消',
@@ -80,6 +81,7 @@ const EN = {
   'agents.role': 'Role',
   'agents.knows': 'Knows (comma separated)',
   'agents.allowFrom': 'Allow wake-ups from (owner / session id / *)',
+  'agents.allowAbort': 'Allow hard abort by other sessions (default off)',
   'agents.subscriptions': 'Long-term subscriptions (JSON array, may be empty)',
   'agents.save': 'Save',
   'agents.cancel': 'Cancel',
@@ -230,7 +232,7 @@ function SessionBusSettings(props) {
 
   function startCreate() {
     setForm('create');
-    setDraft({ sessionId: '', name: '', role: '', knows: '', allowFrom: 'owner', enabled: true, subscriptions: '[]' });
+    setDraft({ sessionId: '', name: '', role: '', knows: '', allowFrom: 'owner', enabled: true, allowAbort: false, subscriptions: '[]' });
   }
 
   function startEdit(agent) {
@@ -242,6 +244,7 @@ function SessionBusSettings(props) {
       knows: (agent.knows || []).join(', '),
       allowFrom: (agent.allowFrom || ['owner']).join(', '),
       enabled: agent.enabled !== false,
+      allowAbort: agent.allowAbort === true,
       subscriptions: JSON.stringify(agent.subscriptions || [], null, 2)
     });
   }
@@ -279,6 +282,7 @@ function SessionBusSettings(props) {
       knows: parseList(draft.knows),
       allowFrom: parseList(draft.allowFrom),
       enabled: draft.enabled !== false,
+      allowAbort: draft.allowAbort === true,
       subscriptions
     };
     await run(async function () {
@@ -394,6 +398,20 @@ function SessionBusSettings(props) {
                 }
               }),
               t('agents.enable')
+            ),
+            h(
+              'label',
+              { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: 12 } },
+              h('input', {
+                type: 'checkbox',
+                checked: draft.allowAbort === true,
+                onChange: function (event) {
+                  const next = Object.assign({}, draft);
+                  next.allowAbort = event.target.checked;
+                  setDraft(next);
+                }
+              }),
+              t('agents.allowAbort')
             ),
             h(
               'div',
