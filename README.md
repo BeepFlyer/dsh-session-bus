@@ -139,6 +139,8 @@ curl -s -X POST http://127.0.0.1:<端口>/api/session-bus/signal \
 
 ### 会话怎么"登记自己"
 
+> 行为变更（2026-11-11）：`bus_deliver` 只接受**已注册**的 sessionId。未注册的 id 会直接被拒绝（reason=`session-not-registered`），**不会** resolveAgent 唤醒它。这样旧 id、拼错的 id、随手猜的 id 都不会再复活冬眠会话。
+
 > 字段迁移：旧 `waitingCount` 已改名为 `pendingWaits`（bus_wait_for 等待项数）；新增 `pendingMessages` 表示 inbox 未处理消息数。
 > 如果你的代码读 `waitingCount`，改用 `pendingWaits`。
 

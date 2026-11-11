@@ -516,6 +516,14 @@ export function apply(ctx) {
       }
       const agents = readAgents().agents;
       const target = findAgent(agents, options.sessionId);
+      // 投递只接受注册表里的 sessionId：未注册一律拒绝，绝不 resolveAgent 唤醒。
+      // 这同时挡住旧 id、拼错 id、随手猜的 id（2026-11-11 点卯把消息投到冬眠旧会话的事故）。
+      if (target === undefined) {
+        entry.reason = 'session-not-registered';
+        appendAudit(entry);
+        log('delivery rejected: session-not-registered ' + String(options.sessionId) + ' (from ' + String(options.from) + ')');
+        return entry;
+      }
       if (!allows(options.from, target)) {
         entry.reason = 'permission-denied';
         appendAudit(entry);
