@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const recentDeliveries = [];
+const unregisteredWarnAt = new Map();
 const lastBySession = new Map();
 const windows = new Map();
 let writeChain = Promise.resolve();
@@ -502,6 +503,7 @@ export function apply(ctx) {
         source: options.source || null,
         renderSource: options.from === 'owner' ? 'webhook' : 'agent-message',
         mode: options.mode === 'steer' || options.mode === 'abort' ? options.mode : 'queue',
+        unregistered: false,
         kind: ['decision', 'blocker', 'handoff', 'notice'].includes(options.kind) ? options.kind : 'notice',
         ref: typeof options.ref === 'string' ? options.ref : '',
         agentStatus: null,
@@ -516,13 +518,16 @@ export function apply(ctx) {
       }
       const agents = readAgents().agents;
       const target = findAgent(agents, options.sessionId);
-      // 投递只接受注册表里的 sessionId：未注册一律拒绝，绝不 resolveAgent 唤醒。
-      // 这同时挡住旧 id、拼错 id、随手猜的 id（2026-11-11 点卯把消息投到冬眠旧会话的事故）。
+      // 未注册的 sessionId 不拒绝（新生会话还没登记时最需要投递），但留痕：
+      // 审计条目打 unregistered:true，bus 日志按目标 5 分钟去重记一条 warning。
       if (target === undefined) {
-        entry.reason = 'session-not-registered';
-        appendAudit(entry);
-        log('delivery rejected: session-not-registered ' + String(options.sessionId) + ' (from ' + String(options.from) + ')');
-        return entry;
+        entry.unregistered = true;
+        const now = Date.now();
+        const lastWarn = unregisteredWarnAt.get(options.sessionId) || 0;
+        if (now - lastWarn > 5 * 60 * 1000) {
+          unregisteredWarnAt.set(options.sessionId, now);
+          log('warning: delivery to unregistered sessionId ' + String(options.sessionId) + ' (from ' + String(options.from) + ')');
+        }
       }
       if (!allows(options.from, target)) {
         entry.reason = 'permission-denied';
