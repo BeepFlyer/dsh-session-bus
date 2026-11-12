@@ -389,7 +389,7 @@ function parseBusHeader(text) {
   }
   const lines = (newline < 0 ? '' : text.slice(newline + 1)).split('\n');
   const markers = [];
-  while (lines.length > 0 && /^[(steer|abort|bus)] /.test(lines[lines.length - 1])) {
+  while (lines.length > 0 && /^\[(steer|abort|bus)\] /.test(lines[lines.length - 1])) {
     markers.unshift(lines.pop());
   }
   const mode = emergency ? 'steer' : markers.some((line) => line.indexOf('[abort]') === 0) ? 'abort' : 'queue';
@@ -1125,5 +1125,5 @@ function apply(ctx) {
   });
 }
 
-return { inject: ['slots', 'locale'], apply: apply };
+return { inject: ['slots', 'locale'], apply: apply, parseBusHeader: parseBusHeader };
 

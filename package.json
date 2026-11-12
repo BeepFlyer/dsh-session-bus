@@ -29,7 +29,8 @@
   "scripts": {
     "build": "node scripts/build-client.mjs",
     "check:client": "node scripts/build-client.mjs --check",
-    "check": "node scripts/build-client.mjs --check && node --check index.js && node --check client.js"
+    "check": "node scripts/build-client.mjs --check && node --check index.js && node --check client.js",
+    "test": "node --test test/*.test.js"
   },
   "dsh": {
     "bundle": {

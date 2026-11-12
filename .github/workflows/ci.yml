@@ -19,3 +19,5 @@ jobs:
         run: |
           node --check index.js
           node --check client.js
+      - name: Tests
+        run: npm test

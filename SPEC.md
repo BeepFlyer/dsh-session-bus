@@ -51,15 +51,18 @@ delivery     投递：一个事件对某个会话的一次 prompt 调用
 
 ---
 
-## 4. 存储（三个文件，位置固定）
+## 4. 存储（位置固定）
 
 目录：`~/.dsh/session-bus/`
 
 | 文件 | 内容 | 变化频率 |
 |---|---|---|
-| `agents.json` | 会话身份 + **长期订阅** | 低 |
-| `waiting.json` | **短期等待项**（一次性，带 TTL） | 高 |
-| `deliveries.jsonl` | 审计日志，只追加 | — |
+| `agents.json` | 会话身份 + 长期订阅 + allowInterrupt/allowAbort/memoryPool | 低 |
+| `waiting.json` | 短期等待项（一次性，带 TTL） | 高 |
+| `settings.json` | 护栏与投递设置 | 低 |
+| `deliveries.jsonl` | 投递审计日志，只追加 | — |
+| `state/recent.jsonl` | 最近投递记录（发送/接收卡片与 `bus_recent` 用；正文 ≤ 4000 字） | 高 |
+| `state/registry.jsonl` | 注册表变更审计（`bus_register` / admin） | 低 |
 
 **为什么拆 `agents` / `waiting` 两张表**：身份几乎不变，等待项几分钟就变；
 混在一起会互相覆盖。
@@ -76,6 +79,9 @@ delivery     投递：一个事件对某个会话的一次 prompt 调用
       "role": "常驻陪伴 + 工具维护 + 记忆整理",
       "knows": ["voice-mode 插件", "飞书桥", "本机记忆系统", "Notion 接入"],
       "allowFrom": ["*"],
+      "allowInterrupt": true,
+      "allowAbort": false,
+      "memoryPool": "G:\\liveDeepSeek\\memory\\大肥鱼\\",
       "enabled": true,
       "subscriptions": [
         {
@@ -318,17 +324,21 @@ B，B 没放行 A，回信无路）。
 
 ### 8.2 会话侧工具（给 agent）
 
-必须提供这五个工具，名字固定：
+必须提供这七个工具，名字固定（`bus_list_agents` 已改名为 `bus_peers`）：
 
 | 工具 | 入参 | 用途 |
 |---|---|---|
-| `bus_peers` | 无 | 列出所有注册会话（含 role / knows / waiting 数） |
-| `bus_deliver` | `{sessionId, text, hop?}` | 主动投递给别的会话 |
+| `bus_register` | `{sessionId?, originalSessionId?, name?, role?, knows?, memoryPool?, allowFrom?, allowInterrupt?, allowAbort?, enabled?, reason?, force?}` | 注册/修改会话记录；省略 sessionId 即改自己；改别人仅元数据，权限字段/改名需 force+reason；审计写 registry.jsonl |
+| `bus_peers` | 无 | 列出所有注册会话（status / pendingWaits / pendingMessages / memoryPool / allowFrom / allowAbort） |
+| `bus_deliver` | `{sessionId, text, mode?, kind?, ref?, reason?, resumeHint?, hop?}` | queue / steer / abort 投递；返回 agentStatus / inboxCount / merged / packed |
+| `bus_recent` | `{sessionId?, limit?}` | 按 blockId 查自己发过的消息：pending / taken / unknown |
 | `bus_wait_for` | `{source, match, reason, ttlSeconds?, consume?}` | 登记一个等待项 |
 | `bus_list_waiting` | 无 | 看自己在等什么 |
 | `bus_clear_waiting` | `{id?}` | 清掉等待项（不传 id = 清自己的全部） |
 
 **`bus_peers` 是「身份信息的读者是 AI」这条需求的落地**——让会话能决定"这活派给谁"。
+
+UI 侧（Client 半部）：接收方把唤醒型消息渲染成左侧「来自会话 X」气泡；发送方在回合末显示「已发送 N 条」卡片；运行中插入的 steer 消息在接收方回合末显示「本轮收到 N 条插入」回执卡（DSH 不把运行中 claim 的消息画成独立气泡）。
 
 ### 8.3 设置页
 
@@ -412,7 +422,7 @@ Wiki维护者 · 等 wiki 相关文件 · 剩 3 分钟 · [清除]
 | 3 | 目标会话里 | **真的出现**带 `[session-bus \| feishu → X \| image \| HH:MM]` 前缀的消息 |
 | 4 | 目标会话调 `bus_clear_waiting()` | `GET /waiting` 里该条消失 |
 | 5 | 等 TTL 过期（可设 10s 测） | 自动清除，`/log` 有记录 |
-| 6 | 会话 A 调 `bus_deliver` 给 B | B 里出现消息，前缀 `[session-bus \| <A的name> → <B的name> \| session \| HH:MM]` |
+| 6 | 会话 A 调 `bus_deliver` 给 B | B 里出现消息，前缀 `[session-bus \| <A> → <B> \| session \| HH:MM \| kind=…]`；UI 侧显示为来源气泡/卡片 |
 | 7 | 构造 hop = maxHop 的投递 | 被拒，`/log` 记 `hop-exceeded` |
 | 8 | 同一会话 1 秒内投两次 | 第二次等待或被限流，不报 `writer-held` 给用户 |
 | 9 | 会话数前后对比 | **不产生新会话** |
