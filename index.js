@@ -662,6 +662,8 @@ export function apply(ctx) {
           at: isoNow(new Date()),
           from: String(options.from || 'owner'),
           to: options.sessionId,
+          turn: Number.isFinite(Number(options.turn)) ? Number(options.turn) : null,
+          toolCallId: typeof options.toolCallId === 'string' ? options.toolCallId : null,
           blockId: deliveredBlockId,
           kind: entry.kind,
           mode: effectiveMode,
@@ -843,6 +845,31 @@ export function apply(ctx) {
     }
 
     async function adminAction(action, payload) {
+      if (action === 'listRecent') {
+        const from = String(payload && payload.from ? payload.from : '').trim();
+        const turnValue = payload && payload.turn !== undefined && payload.turn !== null ? Number(payload.turn) : null;
+        const turn = Number.isFinite(turnValue) ? turnValue : null;
+        const requested = Number(payload && payload.limit);
+        const limit = Number.isFinite(requested) ? Math.min(50, Math.max(1, Math.trunc(requested))) : 20;
+        const agents = readAgents().agents;
+        const rows = readRecentRecords()
+          .filter((record) => (from === '' || record.from === from) && (turn === null || record.turn === turn))
+          .slice(-limit)
+          .map((record) => {
+            const target = findAgent(agents, record.to);
+            return {
+              at: record.at,
+              turn: record.turn === undefined ? null : record.turn,
+              to: record.to,
+              toName: (target && target.name) || record.to,
+              kind: record.kind || 'notice',
+              mode: record.mode || 'queue',
+              ref: record.ref || '',
+              summary: record.summary || ''
+            };
+          });
+        return { entries: rows };
+      }
       if (action === 'listAgents') return { agents: adminListAgents() };
       if (action === 'listWaiting') return { waiting: readWaiting().waiting };
       if (action === 'listSettings') return { settings: readSettings() };
@@ -1141,6 +1168,18 @@ export function apply(ctx) {
         const reason = args && typeof args.reason === 'string' ? args.reason.trim() : '';
         const resumeHint = args && typeof args.resumeHint === 'string' ? args.resumeHint.trim() : '';
         if (mode === 'abort' && reason === '') throw new Error('bus_deliver: reason is required when mode=abort');
+        let turn = null;
+        try {
+          const session = exec && exec.agent ? exec.agent.session : null;
+          const events = session && typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : [];
+          for (let index = events.length - 1; index >= 0; index -= 1) {
+            if (events[index] && events[index].type === 'turn/start') {
+              turn = events[index].data ? events[index].data.turn : null;
+              break;
+            }
+          }
+        } catch (_error) {}
+        const toolCallId = exec && typeof exec.callId === 'string' ? exec.callId : null;
         const hop = Number.isFinite(Number(args.hop)) ? Number(args.hop) + 1 : 1;
         let header = '[session-bus | ' + callerName(caller) + ' → ' + callerName(sessionId) + ' | session | ' + localTime(new Date()) + ' | kind=' + kind;
         if (refArg !== '') header += ' | ref=' + refArg;
@@ -1157,6 +1196,8 @@ export function apply(ctx) {
           resumeHint,
           kind,
           ref: refArg,
+          turn,
+          toolCallId,
           text: header + '\n' + text
         });
         if (!entry.ok) throw new Error('bus_deliver failed: ' + String(entry.reason || 'unknown'));

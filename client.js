@@ -35,6 +35,13 @@ const ZH = {
   'agents.memoryPool': '记忆池路径（压缩后从哪恢复）',
   'agents.memoryPoolUnset': '未设置',
   'agents.memoryPoolMissing': '路径不存在',
+  'sent.title': '会话总线 · 已发送 {count} 条',
+  'sent.kind.decision': '决策',
+  'sent.kind.blocker': '阻塞',
+  'sent.kind.handoff': '交接',
+  'sent.kind.notice': '通知',
+  'sent.mode.steer': '转向',
+  'sent.mode.abort': '急停',
   'agents.copy': '复制',
   'agents.renameHint': '改 sessionId 后，原会话不再接收总线消息；新 id 不能与已有会话重复。',
   'agents.copied': '已复制',
@@ -93,6 +100,13 @@ const EN = {
   'agents.memoryPool': 'Memory pool path (where to recover after compaction)',
   'agents.memoryPoolUnset': 'not set',
   'agents.memoryPoolMissing': 'path not found',
+  'sent.title': 'Session bus · sent {count}',
+  'sent.kind.decision': 'decision',
+  'sent.kind.blocker': 'blocker',
+  'sent.kind.handoff': 'handoff',
+  'sent.kind.notice': 'notice',
+  'sent.mode.steer': 'steer',
+  'sent.mode.abort': 'abort',
   'agents.copy': 'copy',
   'agents.renameHint': 'After changing the sessionId, the original session no longer receives bus messages; the new id must not collide with an existing one.',
   'agents.copied': 'copied',
@@ -183,6 +197,120 @@ function formatRemaining(ms) {
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return minutes > 0 ? minutes + 'm ' + seconds + 's' : seconds + 's';
+}
+
+function clockOf(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = function (value) {
+    return ('0' + value).slice(-2);
+  };
+  return pad(date.getHours()) + ':' + pad(date.getMinutes());
+}
+
+function summaryOf(text) {
+  const lines = String(text || '').split('\n');
+  if (lines.length > 0 && lines[0].indexOf('[session-bus |') === 0) lines.shift();
+  return lines.join(' ').trim();
+}
+
+function sentChip(label, tone) {
+  const color = tone === 'warn' ? 'var(--dsw-alias-label-warning, #d97706)' : tone === 'danger' ? 'var(--dsw-alias-label-danger, #dc2626)' : 'var(--dsw-alias-label-secondary)';
+  return h(
+    'span',
+    { style: { fontSize: 10, lineHeight: '16px', padding: '0 6px', borderRadius: 999, border: '1px solid var(--dsw-alias-border-l1)', color } },
+    label
+  );
+}
+
+function SentTail(props) {
+  const t = props.t;
+  const turn = props.turn;
+  const sessionId = props.sessionId;
+  const [entries, setEntries] = React.useState([]);
+  const turnNumber = turn && typeof turn.turn === 'number' ? turn.turn : null;
+  const closed = turn && turn.end !== undefined;
+  React.useEffect(
+    function () {
+      let alive = true;
+      if (turnNumber === null || !closed || typeof sessionId !== 'string') return function () {};
+      callAdmin('listRecent', { from: sessionId, turn: turnNumber, limit: 20 })
+        .then(function (result) {
+          if (alive) setEntries(Array.isArray(result.entries) ? result.entries.slice().reverse() : []);
+        })
+        .catch(function () {
+          if (alive) setEntries([]);
+        });
+      return function () {
+        alive = false;
+      };
+    },
+    [sessionId, turnNumber, closed]
+  );
+  if (!closed || entries.length === 0) return null;
+  return h(
+    'section',
+    {
+      style: {
+        margin: '10px 0 4px',
+        border: '1px solid var(--dsw-alias-border-l1)',
+        borderRadius: 10,
+        background: 'var(--dsw-alias-bg-layer-1)',
+        padding: '10px 12px',
+        display: 'grid',
+        gap: 8,
+        maxWidth: 720
+      }
+    },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-secondary)' } },
+      h('span', null, '📡'),
+      h('span', null, t('sent.title').replace('{count}', String(entries.length)))
+    ),
+    entries.map(function (entry, index) {
+      const key = String(entry.at || '') + ':' + String(entry.to || '') + ':' + index;
+      const mode = entry.mode === 'steer' || entry.mode === 'abort' ? entry.mode : '';
+      return h(
+        'div',
+        {
+          key,
+          style: {
+            display: 'grid',
+            gap: 3,
+            padding: '7px 9px',
+            borderRadius: 8,
+            background: 'var(--dsw-alias-bg-layer-2)'
+          }
+        },
+        h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--dsw-alias-label-secondary)', flexWrap: 'wrap' } },
+          h('span', { style: { fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, '→ ' + String(entry.toName || entry.to || '')),
+          sentChip(t('sent.kind.' + (entry.kind || 'notice')), ''),
+          mode === '' ? null : sentChip(t('sent.mode.' + mode), mode === 'abort' ? 'danger' : 'warn'),
+          h('span', { style: { marginLeft: 'auto' } }, clockOf(entry.at))
+        ),
+        h(
+          'div',
+          {
+            style: {
+              fontSize: 12,
+              lineHeight: '18px',
+              color: 'var(--dsw-alias-label-secondary)',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              display: '-webkit-box',
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden'
+            }
+          },
+          summaryOf(entry.summary)
+        )
+      );
+    })
+  );
 }
 
 function SessionBusSettings(props) {
@@ -618,6 +746,12 @@ function SessionBusSettings(props) {
 function apply(ctx) {
   ctx.inject(['slots', 'locale'], (c) => {
     c.effect(() => c.locale.register(NS, { zh: ZH, en: EN }));
+    c.slots.inject('conversation.chat.turnTail', () => {
+      return c.slots.register(
+        { name: 'conversation.chat.turnTail', id: 'session-bus-sent', order: 40, locale: NS },
+        SentTail
+      );
+    });
     c.slots.inject('settings.section', () => {
       let label = 'Session bus';
       try {
