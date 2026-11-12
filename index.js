@@ -846,6 +846,20 @@ export function apply(ctx) {
     }
 
     async function adminAction(action, payload) {
+      if (action === 'listSteering') {
+        const sessionId = String(payload && payload.sessionId ? payload.sessionId : '').trim();
+        let live = null;
+        try {
+          live = sessionId === '' ? null : c.agents.get(sessionId) || null;
+        } catch (_error) {
+          live = null;
+        }
+        if (live === null) return { status: 'unknown', entries: [] };
+        const entries = live.inbox.nextStep
+          .filter((message) => message && message.source && message.source.kind === 'agent-message')
+          .map((message) => ({ id: message.id, senderSessionId: message.source.senderSessionId, content: message.content }));
+        return { status: 'live', entries };
+      }
       if (action === 'listRecent') {
         const from = String(payload && payload.from ? payload.from : '').trim();
         const turnValue = payload && payload.turn !== undefined && payload.turn !== null ? Number(payload.turn) : null;

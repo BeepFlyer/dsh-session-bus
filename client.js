@@ -26,6 +26,19 @@ const SENT_CSS = [
   '.sb-sent-toggle:hover{text-decoration:underline}'
 ].join('\n');
 
+const BUS_CSS = [
+  '.sb-bus-row{display:flex;flex-direction:column;align-items:flex-start;gap:6px}',
+  '.sb-bus-marker{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px}',
+  '.sb-bus-marker span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.sb-bus-body{max-width:100%;padding:9px 12px;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid #6366f1;border-radius:10px;background:var(--dsw-alias-bg-layer-1)}',
+  '.sb-bus-actions{display:flex;align-items:center;gap:8px;height:28px}',
+  '.sb-bus-time{padding-right:4px;color:var(--dsw-alias-label-tertiary);font-size:12px;white-space:nowrap}',
+  '.sb-bus-copy{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:6px;border:none;border-radius:var(--dsw-radius-sm);background:0 0;color:var(--dsw-alias-label-tertiary);cursor:pointer}',
+  '.sb-bus-copy:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}',
+  '.sb-steer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 8px;padding:7px 10px;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid #6366f1;border-radius:10px;background:var(--dsw-alias-bg-layer-1);font-size:12px;color:var(--dsw-alias-label-secondary)}',
+  '.sb-steer-item{margin-top:6px;padding-top:6px;border-top:1px dashed var(--dsw-alias-border-l1);white-space:pre-wrap;word-break:break-word}'
+].join('\n');
+
 const SENT_KIND_COLORS = {
   notice: '#64748b',
   handoff: '#2563eb',
@@ -68,6 +81,12 @@ const ZH = {
   'sent.mode.steer': '转向',
   'sent.mode.abort': '急停',
   'sent.expand': '展开全文',
+  'bus.from': '来自会话「{name}」',
+  'bus.copy': '复制',
+  'bus.copied': '已复制',
+  'steer.title': '收到 {count} 条总线消息，已插入当前轮',
+  'steer.show': '查看',
+  'steer.hide': '收起',
   'sent.collapse': '收起',
   'agents.copy': '复制',
   'agents.renameHint': '改 sessionId 后，原会话不再接收总线消息；新 id 不能与已有会话重复。',
@@ -135,6 +154,12 @@ const EN = {
   'sent.mode.steer': 'steer',
   'sent.mode.abort': 'abort',
   'sent.expand': 'show full text',
+  'bus.from': 'From session “{name}”',
+  'bus.copy': 'copy',
+  'bus.copied': 'copied',
+  'steer.title': '{count} bus message(s) inserted into the running turn',
+  'steer.show': 'show',
+  'steer.hide': 'hide',
   'sent.collapse': 'collapse',
   'agents.copy': 'copy',
   'agents.renameHint': 'After changing the sessionId, the original session no longer receives bus messages; the new id must not collide with an existing one.',
@@ -321,6 +346,190 @@ function SentTail(props) {
           : null
       );
     })
+  );
+}
+
+let SLOTS = null;
+
+function parseBusHeader(text) {
+  if (typeof text !== 'string' || text.indexOf('[session-bus |') !== 0) return null;
+  const newline = text.indexOf('\n');
+  const header = newline < 0 ? text : text.slice(0, newline);
+  const fields = header.replace(/^\[/, '').replace(/\]$/, '').split(' | ');
+  const route = (fields[1] || '').split('→');
+  const sender = (route[0] || '').trim();
+  if (sender === '') return null;
+  let kind = 'notice';
+  let ref = '';
+  let emergency = false;
+  for (const field of fields) {
+    const value = field.trim();
+    if (value.indexOf('kind=') === 0) kind = value.slice(5).trim();
+    else if (value.indexOf('ref=') === 0) ref = value.slice(4).trim();
+    else if (value === '紧急') emergency = true;
+  }
+  const lines = (newline < 0 ? '' : text.slice(newline + 1)).split('\n');
+  const markers = [];
+  while (lines.length > 0 && /^[(steer|abort|bus)] /.test(lines[lines.length - 1])) {
+    markers.unshift(lines.pop());
+  }
+  const mode = emergency ? 'steer' : markers.some((line) => line.indexOf('[abort]') === 0) ? 'abort' : 'queue';
+  return {
+    sender,
+    kind: ['decision', 'blocker', 'handoff', 'notice'].indexOf(kind) >= 0 ? kind : 'notice',
+    ref,
+    mode,
+    body: lines.join('\n').trim()
+  };
+}
+
+function BusBubble(props) {
+  const { relay, time, renderFactorySlot, loadImage, t } = props;
+  const [copied, setCopied] = React.useState(false);
+  React.useEffect(
+    function () {
+      if (!copied) return function () {};
+      const timer = setTimeout(function () {
+        setCopied(false);
+      }, 1000);
+      return function () {
+        clearTimeout(timer);
+      };
+    },
+    [copied]
+  );
+  const copy = function () {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(relay.body).then(
+          function () {
+            setCopied(true);
+          },
+          function () {}
+        );
+      }
+    } catch (_error) {}
+  };
+  return h(
+    'div',
+    { className: 'sb-bus-row' },
+    h(
+      'div',
+      { className: 'sb-bus-marker' },
+      h('span', null, '📡'),
+      h('span', { title: relay.sender }, t('bus.from').replace('{name}', relay.sender)),
+      sentChip(t('sent.kind.' + relay.kind), ''),
+      relay.mode === 'steer' || relay.mode === 'abort' ? sentChip(t('sent.mode.' + relay.mode), 'sb-sent-mode-' + relay.mode) : null
+    ),
+    h(
+      'div',
+      { className: 'sb-bus-body' },
+      renderFactorySlot('conversation.chat.user.content', {
+        content: { text: relay.body, attachments: [], extraBlocks: [] },
+        loadImage,
+        facts: {},
+        interactive: true
+      })
+    ),
+    h(
+      'div',
+      { className: 'sb-bus-actions' },
+      time === undefined ? null : h('time', { className: 'sb-bus-time', dateTime: new Date(time).toISOString() }, clockOf(time)),
+      h('button', { type: 'button', className: 'sb-bus-copy', title: copied ? t('bus.copied') : t('bus.copy'), onClick: copy }, copied ? '✓' : '⧉')
+    )
+  );
+}
+
+function BusTriggerView(props) {
+  const { node, renderFactorySlot, loadImage, t } = props;
+  const relay = React.useMemo(
+    function () {
+      const data = node && node.data;
+      if (!data || !data.source || data.source.kind !== 'agent-message' || data.source.form !== 'relay') return null;
+      const content = Array.isArray(data.content) ? data.content : [];
+      const first = content[0];
+      if (!first || first.type !== 'text' || typeof first.text !== 'string') return null;
+      const parsed = parseBusHeader(first.text);
+      if (parsed === null) return null;
+      return parsed;
+    },
+    [node]
+  );
+  if (relay === null) {
+    let shipped;
+    try {
+      const entries = SLOTS && typeof SLOTS.entries === 'function' ? SLOTS.entries('conversation.chat.node') : [];
+      for (const entry of entries) {
+        if (entry.options && entry.options.key === 'turn-trigger' && entry.component !== BusTriggerView) {
+          if (shipped === undefined || (entry.options.priority || 0) < (shipped.options.priority || 0)) shipped = entry;
+        }
+      }
+    } catch (_error) {}
+    return shipped === undefined ? null : h(shipped.component, props);
+  }
+  return h(BusBubble, { relay, time: node.data && node.data.time, renderFactorySlot, loadImage, t });
+}
+
+function SteeringNotice(props) {
+  const t = props.t;
+  const sessionId = props.sessionId;
+  const [items, setItems] = React.useState([]);
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(
+    function () {
+      let alive = true;
+      function tick() {
+        if (typeof sessionId !== 'string' || sessionId === '') return;
+        callAdmin('listSteering', { sessionId })
+          .then(function (result) {
+            if (!alive) return;
+            const parsed = Array.isArray(result.entries)
+              ? result.entries
+                  .map(function (entry) {
+                    const block = Array.isArray(entry.content) ? entry.content[0] : null;
+                    const relay = block && block.type === 'text' ? parseBusHeader(block.text) : null;
+                    return relay === null ? null : Object.assign({ id: entry.id }, relay);
+                  })
+                  .filter(Boolean)
+              : [];
+            setItems(parsed);
+          })
+          .catch(function () {});
+      }
+      tick();
+      const timer = setInterval(tick, 2500);
+      return function () {
+        alive = false;
+        clearInterval(timer);
+      };
+    },
+    [sessionId]
+  );
+  if (items.length === 0) return null;
+  return h(
+    'div',
+    { className: 'sb-steer' },
+    h('span', null, '📡'),
+    h('span', { style: { fontWeight: 600 } }, t('steer.title').replace('{count}', String(items.length))),
+    h(
+      'button',
+      { type: 'button', className: 'sb-sent-toggle', style: { marginLeft: 'auto' }, onClick: function () { setOpen(!open); } },
+      open ? t('steer.hide') : t('steer.show')
+    ),
+    open
+      ? h(
+          'div',
+          { style: { flexBasis: '100%' } },
+          items.map(function (item) {
+            return h(
+              'div',
+              { key: item.id, className: 'sb-steer-item' },
+              h('div', { style: { fontWeight: 600, marginBottom: 2 } }, t('bus.from').replace('{name}', item.sender) + ' · ' + t('sent.kind.' + item.kind)),
+              item.body
+            );
+          })
+        )
+      : null
   );
 }
 
@@ -757,15 +966,28 @@ function SessionBusSettings(props) {
 function apply(ctx) {
   ctx.inject(['slots', 'locale'], (c) => {
     c.effect(() => c.locale.register(NS, { zh: ZH, en: EN }));
+    SLOTS = c.slots;
     c.effect(function () {
       if (typeof document === 'undefined') return function () {};
       const style = document.createElement('style');
       style.setAttribute('data-session-bus', 'sent-card');
-      style.textContent = SENT_CSS;
+      style.textContent = SENT_CSS + '\n' + BUS_CSS;
       document.head.appendChild(style);
       return function () {
         style.remove();
       };
+    });
+    c.slots.inject('conversation.chat.node', () => {
+      return c.slots.register(
+        { name: 'conversation.chat.node', key: 'turn-trigger', locale: NS, priority: -10 },
+        BusTriggerView
+      );
+    });
+    c.slots.inject('conversation.input.dock', () => {
+      return c.slots.register(
+        { name: 'conversation.input.dock', id: 'session-bus-steering', order: 30, locale: NS },
+        SteeringNotice
+      );
     });
     c.slots.inject('conversation.chat.turnTail', () => {
       return c.slots.register(
