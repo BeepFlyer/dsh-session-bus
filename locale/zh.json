@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "会话总线",
+    "description": "让 DSH 顶层会话之间互相投递消息：bus_peers 查看已登记会话，bus_deliver 按 queue / steer / abort 投递，消息可带 kind 与 ref 自动合并标记；发送方与接收方在 Chat 里都能看到对应卡片。"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session bus",
+    "description": "Message other DSH top-level sessions: bus_peers lists registered sessions, bus_deliver delivers in queue / steer / abort mode with kind and ref-aware merging; both sender and receiver see cards in Chat."
+  }
+}

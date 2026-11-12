@@ -1,14 +1,17 @@
 {
   "name": "dsh-session-bus",
-  "version": "0.2.0",
-  "private": true,
-  "type": "module",
+  "version": "0.3.0",
+  "description": "Cross-session message bus for DeepSeek Harness: registered peers, queued/steer/abort delivery, merge + kind/ref marking, recent-history lookup, and sender/receiver cards in Chat.",
   "icon": "./icon.svg",
+  "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
-    "./icon": "./icon.svg"
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
   },
   "files": [
     "index.js",
@@ -17,38 +20,16 @@
     "scripts/build-client.mjs",
     "cordis.patch.yml",
     "README.md",
+    "README.en.md",
     "SPEC.md",
-    "icon.svg"
+    "icon.svg",
+    "locale/*.json",
+    "docs/*.png"
   ],
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "check:client": "node scripts/build-client.mjs --check"
-  },
-  "description": "Session bus: registered intent + matching + guarded delivery between DSH sessions and external processes.",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/BeepFlyer/dsh-session-bus.git"
-  },
-  "homepage": "https://github.com/BeepFlyer/dsh-session-bus#readme",
-  "bugs": {
-    "url": "https://github.com/BeepFlyer/dsh-session-bus/issues"
-  },
-  "keywords": [
-    "dsh",
-    "deepseek-harness",
-    "dsh-plugin",
-    "session",
-    "bus",
-    "message-bus",
-    "ipc",
-    "agent",
-    "webhook",
-    "delivery"
-  ],
-  "engines": {
-    "node": ">=20.0.0",
-    "dsh": ">=0.2.0"
+    "check:client": "node scripts/build-client.mjs --check",
+    "check": "node scripts/build-client.mjs --check && node --check index.js && node --check client.js"
   },
   "dsh": {
     "bundle": {
@@ -60,5 +41,32 @@
         "@deepseek-ai/dsh-client-locale"
       ]
     }
-  }
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "dsh": ">=0.2.0"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "session",
+    "session-messaging",
+    "cross-session",
+    "multi-agent",
+    "message-bus"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BeepFlyer/dsh-session-bus.git"
+  },
+  "homepage": "https://github.com/BeepFlyer/dsh-session-bus#readme",
+  "bugs": {
+    "url": "https://github.com/BeepFlyer/dsh-session-bus/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT"
 }

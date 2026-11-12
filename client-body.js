@@ -2,6 +2,45 @@
 
 const NS = 'session-bus';
 
+const SENT_CSS = [
+  '.sb-sent{margin:10px 0 4px;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid #6366f1;border-radius:10px;background:var(--dsw-alias-bg-layer-1);padding:10px 12px;display:grid;gap:8px;max-width:720px}',
+  '.sb-sent-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#6366f1}',
+  '.sb-sent-head-icon{font-size:13px}',
+  '.sb-sent-row{display:grid;gap:3px;padding:7px 9px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);border-left:3px solid var(--sb-kind,#64748b);transition:filter .15s ease}',
+  '.sb-sent-row:hover{filter:brightness(1.04)}',
+  '.sb-sent-meta{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap}',
+  '.sb-sent-to{font-weight:600;color:var(--dsw-alias-label-primary)}',
+  '.sb-sent-chip{font-size:10px;line-height:16px;padding:0 6px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--sb-kind,#64748b)}',
+  '.sb-sent-mode-steer{color:#7c3aed;border-color:rgba(124,58,237,.35)}',
+  '.sb-sent-mode-abort{color:#dc2626;border-color:rgba(220,38,38,.35)}',
+  '.sb-sent-time{margin-left:auto}',
+  '.sb-sent-text{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);white-space:pre-wrap;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}',
+  '.sb-sent-text-open{display:block;-webkit-line-clamp:unset;overflow:visible}',
+  '.sb-sent-toggle{margin-top:2px;padding:0;border:0;background:transparent;color:#6366f1;font-size:11px;cursor:pointer;text-align:left}',
+  '.sb-sent-toggle:hover{text-decoration:underline}'
+].join('\n');
+
+const BUS_CSS = [
+  '.sb-bus-row{display:flex;flex-direction:column;align-items:flex-start;gap:6px}',
+  '.sb-bus-marker{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px}',
+  '.sb-bus-marker span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.sb-bus-inserted{font-size:11px;color:#6366f1;padding:2px 2px 0}',
+  '.sb-bus-body{max-width:100%;padding:9px 12px;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid #6366f1;border-radius:10px;background:var(--dsw-alias-bg-layer-1)}',
+  '.sb-bus-actions{display:flex;align-items:center;gap:8px;height:28px}',
+  '.sb-bus-time{padding-right:4px;color:var(--dsw-alias-label-tertiary);font-size:12px;white-space:nowrap}',
+  '.sb-bus-copy{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:6px;border:none;border-radius:var(--dsw-radius-sm);background:0 0;color:var(--dsw-alias-label-tertiary);cursor:pointer}',
+  '.sb-bus-copy:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}',
+  '.sb-steer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 8px;padding:7px 10px;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid #6366f1;border-radius:10px;background:var(--dsw-alias-bg-layer-1);font-size:12px;color:var(--dsw-alias-label-secondary)}',
+  '.sb-steer-item{margin-top:6px;padding-top:6px;border-top:1px dashed var(--dsw-alias-border-l1);white-space:pre-wrap;word-break:break-word}'
+].join('\n');
+
+const SENT_KIND_COLORS = {
+  notice: '#64748b',
+  handoff: '#2563eb',
+  decision: '#d97706',
+  blocker: '#dc2626'
+};
+
 const ZH = {
   'settings.title': '会话总线',
   'settings.intro': '注册表、等待项、护栏与最近投递；改动即时生效。',
@@ -18,12 +57,41 @@ const ZH = {
   'agents.enable': '启用',
   'agents.disable': '停用',
   'agents.waiting': '等待项',
+  'agents.pendingMessages': '排队消息',
   'agents.empty': '还没有登记任何会话。',
   'agents.name': '名字',
   'agents.sessionId': '会话 ID',
   'agents.role': '职责',
   'agents.knows': '知道什么（逗号分隔）',
   'agents.allowFrom': '可被谁唤醒（逗号分隔，owner / 会话 ID / *）',
+  'agents.allowAbort': '允许别的会话硬中止（abort；默认关闭）',
+  'agents.memoryPool': '记忆池路径（压缩后从哪恢复）',
+  'agents.memoryPoolUnset': '未设置',
+  'agents.memoryPoolMissing': '路径不存在',
+  'sent.title': '会话总线 · 已发送 {count} 条',
+  'sent.kind.decision': '决策',
+  'sent.kind.blocker': '阻塞',
+  'sent.kind.handoff': '交接',
+  'sent.kind.notice': '通知',
+  'sent.mode.steer': '转向',
+  'sent.mode.abort': '急停',
+  'sent.expand': '展开全文',
+  'recv.title': '本轮收到 {count} 条总线插入消息',
+  'recv.label': '插入',
+  'bus.from': '来自会话「{name}」',
+  'bus.copy': '复制',
+  'bus.copied': '已复制',
+  'steer.title': '收到 {count} 条总线消息，已插入当前轮',
+  'steer.recentTitle': '刚刚插入了 {count} 条总线消息',
+  'steer.pendingLabel': '插入中',
+  'bus.inserted': '已插入当前轮',
+  'steer.recentLabel': '已插入',
+  'steer.show': '查看',
+  'steer.hide': '收起',
+  'sent.collapse': '收起',
+  'agents.copy': '复制',
+  'agents.renameHint': '改 sessionId 后，原会话不再接收总线消息；新 id 不能与已有会话重复。',
+  'agents.copied': '已复制',
   'agents.subscriptions': '长期订阅（JSON 数组，可空）',
   'agents.save': '保存',
   'agents.cancel': '取消',
@@ -68,12 +136,41 @@ const EN = {
   'agents.enable': 'Enable',
   'agents.disable': 'Disable',
   'agents.waiting': 'waits',
+  'agents.pendingMessages': 'queued',
   'agents.empty': 'No sessions registered yet.',
   'agents.name': 'Name',
   'agents.sessionId': 'Session id',
   'agents.role': 'Role',
   'agents.knows': 'Knows (comma separated)',
   'agents.allowFrom': 'Allow wake-ups from (owner / session id / *)',
+  'agents.allowAbort': 'Allow hard abort by other sessions (default off)',
+  'agents.memoryPool': 'Memory pool path (where to recover after compaction)',
+  'agents.memoryPoolUnset': 'not set',
+  'agents.memoryPoolMissing': 'path not found',
+  'sent.title': 'Session bus · sent {count}',
+  'sent.kind.decision': 'decision',
+  'sent.kind.blocker': 'blocker',
+  'sent.kind.handoff': 'handoff',
+  'sent.kind.notice': 'notice',
+  'sent.mode.steer': 'steer',
+  'sent.mode.abort': 'abort',
+  'sent.expand': 'show full text',
+  'recv.title': 'Received {count} bus insertion(s) this turn',
+  'recv.label': 'inserted',
+  'bus.from': 'From session “{name}”',
+  'bus.copy': 'copy',
+  'bus.copied': 'copied',
+  'steer.title': '{count} bus message(s) inserted into the running turn',
+  'steer.recentTitle': '{count} bus message(s) just inserted',
+  'steer.pendingLabel': 'pending',
+  'bus.inserted': 'inserted into current turn',
+  'steer.recentLabel': 'inserted',
+  'steer.show': 'show',
+  'steer.hide': 'hide',
+  'sent.collapse': 'collapse',
+  'agents.copy': 'copy',
+  'agents.renameHint': 'After changing the sessionId, the original session no longer receives bus messages; the new id must not collide with an existing one.',
+  'agents.copied': 'copied',
   'agents.subscriptions': 'Long-term subscriptions (JSON array, may be empty)',
   'agents.save': 'Save',
   'agents.cancel': 'Cancel',
@@ -163,6 +260,394 @@ function formatRemaining(ms) {
   return minutes > 0 ? minutes + 'm ' + seconds + 's' : seconds + 's';
 }
 
+function clockOf(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = function (value) {
+    return ('0' + value).slice(-2);
+  };
+  return pad(date.getHours()) + ':' + pad(date.getMinutes());
+}
+
+function summaryOf(text) {
+  const lines = String(text || '').split('\n');
+  if (lines.length > 0 && lines[0].indexOf('[session-bus |') === 0) lines.shift();
+  return lines.join(' ').trim();
+}
+
+function sentChip(label, className) {
+  return h('span', { className: 'sb-sent-chip ' + (className || '') }, label);
+}
+
+function SentTail(props) {
+  const t = props.t;
+  const turn = props.turn;
+  const sessionId = props.sessionId;
+  const [entries, setEntries] = React.useState([]);
+  const [expanded, setExpanded] = React.useState({});
+  const turnNumber = turn && typeof turn.turn === 'number' ? turn.turn : null;
+  const closed = turn && turn.end !== undefined;
+  React.useEffect(
+    function () {
+      let alive = true;
+      if (turnNumber === null || !closed || typeof sessionId !== 'string') return function () {};
+      callAdmin('listRecent', { from: sessionId, turn: turnNumber, limit: 20 })
+        .then(function (result) {
+          if (alive) setEntries(Array.isArray(result.entries) ? result.entries.slice().reverse() : []);
+        })
+        .catch(function () {
+          if (alive) setEntries([]);
+        });
+      return function () {
+        alive = false;
+      };
+    },
+    [sessionId, turnNumber, closed]
+  );
+  if (!closed || entries.length === 0) return null;
+  return h(
+    'section',
+    { className: 'sb-sent' },
+    h(
+      'div',
+      { className: 'sb-sent-head' },
+      h('span', { className: 'sb-sent-head-icon' }, '📡'),
+      h('span', null, t('sent.title').replace('{count}', String(entries.length)))
+    ),
+    entries.map(function (entry, index) {
+      const key = String(entry.at || '') + ':' + String(entry.to || '') + ':' + index;
+      const kind = entry.kind === 'decision' || entry.kind === 'blocker' || entry.kind === 'handoff' ? entry.kind : 'notice';
+      const mode = entry.mode === 'steer' || entry.mode === 'abort' ? entry.mode : '';
+      const kindColor = SENT_KIND_COLORS[kind] || SENT_KIND_COLORS.notice;
+      const body = summaryOf(entry.text || entry.summary || '');
+      const open = expanded[key] === true;
+      const canExpand = body.length > 160 || body.split('\n').length > 2;
+      return h(
+        'div',
+        { key, className: 'sb-sent-row', style: { '--sb-kind': kindColor } },
+        h(
+          'div',
+          { className: 'sb-sent-meta' },
+          h('span', { className: 'sb-sent-to' }, '→ ' + String(entry.toName || entry.to || '')),
+          sentChip(t('sent.kind.' + kind), ''),
+          mode === '' ? null : sentChip(t('sent.mode.' + mode), 'sb-sent-mode-' + mode),
+          h('span', { className: 'sb-sent-time' }, clockOf(entry.at))
+        ),
+        h('div', { className: 'sb-sent-text' + (open ? ' sb-sent-text-open' : '') }, body),
+        canExpand
+          ? h(
+              'button',
+              {
+                type: 'button',
+                className: 'sb-sent-toggle',
+                onClick: function () {
+                  setExpanded(function (previous) {
+                    const next = Object.assign({}, previous);
+                    next[key] = !open;
+                    return next;
+                  });
+                }
+              },
+              open ? t('sent.collapse') : t('sent.expand')
+            )
+          : null
+      );
+    })
+  );
+}
+
+let SLOTS = null;
+
+function shippedEntry(key, self) {
+  let best;
+  try {
+    const entries = SLOTS && typeof SLOTS.entries === 'function' ? SLOTS.entries('conversation.chat.node') : [];
+    for (const entry of entries) {
+      if (!entry.options || entry.options.key !== key || entry.component === self) continue;
+      if (best === undefined || (entry.options.priority || 0) < (best.options.priority || 0)) best = entry;
+    }
+  } catch (_error) {}
+  return best;
+}
+
+function parseBusHeader(text) {
+  if (typeof text !== 'string' || text.indexOf('[session-bus |') !== 0) return null;
+  const newline = text.indexOf('\n');
+  const header = newline < 0 ? text : text.slice(0, newline);
+  const fields = header.replace(/^\[/, '').replace(/\]$/, '').split(' | ');
+  const route = (fields[1] || '').split('→');
+  const sender = (route[0] || '').trim();
+  if (sender === '') return null;
+  let kind = 'notice';
+  let ref = '';
+  let emergency = false;
+  for (const field of fields) {
+    const value = field.trim();
+    if (value.indexOf('kind=') === 0) kind = value.slice(5).trim();
+    else if (value.indexOf('ref=') === 0) ref = value.slice(4).trim();
+    else if (value === '紧急') emergency = true;
+  }
+  const lines = (newline < 0 ? '' : text.slice(newline + 1)).split('\n');
+  const markers = [];
+  while (lines.length > 0 && /^[(steer|abort|bus)] /.test(lines[lines.length - 1])) {
+    markers.unshift(lines.pop());
+  }
+  const mode = emergency ? 'steer' : markers.some((line) => line.indexOf('[abort]') === 0) ? 'abort' : 'queue';
+  return {
+    sender,
+    kind: ['decision', 'blocker', 'handoff', 'notice'].indexOf(kind) >= 0 ? kind : 'notice',
+    ref,
+    mode,
+    body: lines.join('\n').trim()
+  };
+}
+
+function BusBubble(props) {
+  const { relay, time, renderFactorySlot, loadImage, t, inserted } = props;
+  const [copied, setCopied] = React.useState(false);
+  React.useEffect(
+    function () {
+      if (!copied) return function () {};
+      const timer = setTimeout(function () {
+        setCopied(false);
+      }, 1000);
+      return function () {
+        clearTimeout(timer);
+      };
+    },
+    [copied]
+  );
+  const copy = function () {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(relay.body).then(
+          function () {
+            setCopied(true);
+          },
+          function () {}
+        );
+      }
+    } catch (_error) {}
+  };
+  return h(
+    'div',
+    { className: 'sb-bus-row' },
+    h(
+      'div',
+      { className: 'sb-bus-marker' },
+      h('span', null, '📡'),
+      h('span', { title: relay.sender }, t('bus.from').replace('{name}', relay.sender)),
+      sentChip(t('sent.kind.' + relay.kind), ''),
+      relay.mode === 'steer' || relay.mode === 'abort' ? sentChip(t('sent.mode.' + relay.mode), 'sb-sent-mode-' + relay.mode) : null
+    ),
+    h(
+      'div',
+      { className: 'sb-bus-body' },
+      renderFactorySlot('conversation.chat.user.content', {
+        content: { text: relay.body, attachments: [], extraBlocks: [] },
+        loadImage,
+        facts: {},
+        interactive: true
+      })
+    ),
+    inserted === true
+      ? h('div', { className: 'sb-bus-inserted' }, '📥 ' + t('bus.inserted'))
+      : null,
+    h(
+      'div',
+      { className: 'sb-bus-actions' },
+      time === undefined ? null : h('time', { className: 'sb-bus-time', dateTime: new Date(time).toISOString() }, clockOf(time)),
+      h('button', { type: 'button', className: 'sb-bus-copy', title: copied ? t('bus.copied') : t('bus.copy'), onClick: copy }, copied ? '✓' : '⧉')
+    )
+  );
+}
+
+function BusTriggerView(props) {
+  const { node, renderFactorySlot, loadImage, t } = props;
+  const relay = React.useMemo(
+    function () {
+      const data = node && node.data;
+      if (!data || !data.source || data.source.kind !== 'agent-message' || data.source.form !== 'relay') return null;
+      const content = Array.isArray(data.content) ? data.content : [];
+      const first = content[0];
+      if (!first || first.type !== 'text' || typeof first.text !== 'string') return null;
+      const parsed = parseBusHeader(first.text);
+      if (parsed === null) return null;
+      return parsed;
+    },
+    [node]
+  );
+  if (relay === null) {
+    let shipped;
+    try {
+      const entries = SLOTS && typeof SLOTS.entries === 'function' ? SLOTS.entries('conversation.chat.node') : [];
+      for (const entry of entries) {
+        if (entry.options && entry.options.key === 'turn-trigger' && entry.component !== BusTriggerView) {
+          if (shipped === undefined || (entry.options.priority || 0) < (shipped.options.priority || 0)) shipped = entry;
+        }
+      }
+    } catch (_error) {}
+    return shipped === undefined ? null : h(shipped.component, props);
+  }
+  return h(BusBubble, { relay, time: node.data && node.data.time, renderFactorySlot, loadImage, t });
+}
+
+function BusSteeringView(props) {
+  const { node, renderFactorySlot, loadImage, t } = props;
+  const relay = React.useMemo(
+    function () {
+      const data = node && node.data;
+      if (!data || !data.source || data.source.kind !== 'agent-message' || data.source.form !== 'relay') return null;
+      const content = Array.isArray(data.content) ? data.content : [];
+      const first = content[0];
+      if (!first || first.type !== 'text' || typeof first.text !== 'string') return null;
+      return parseBusHeader(first.text);
+    },
+    [node]
+  );
+  if (relay === null) {
+    const shipped = shippedEntry('steering', BusSteeringView);
+    return shipped === undefined ? null : h(shipped.component, props);
+  }
+  return h(BusBubble, { relay, time: node.data && node.data.time, renderFactorySlot, loadImage, t, inserted: true });
+}
+
+function SteeringNotice(props) {
+  const t = props.t;
+  const sessionId = props.sessionId;
+  const [items, setItems] = React.useState([]);
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(
+    function () {
+      let alive = true;
+      function tick() {
+        if (typeof sessionId !== 'string' || sessionId === '') return;
+        callAdmin('listSteering', { sessionId })
+          .then(function (result) {
+            if (!alive) return;
+            const parsed = Array.isArray(result.entries)
+              ? result.entries
+                  .map(function (entry) {
+                    const relay = typeof entry.text === 'string' ? parseBusHeader(entry.text) : null;
+                    return relay === null ? null : Object.assign({ id: entry.id, status: entry.status, senderName: entry.senderName, at: entry.at }, relay);
+                  })
+                  .filter(Boolean)
+              : [];
+            setItems(parsed);
+          })
+          .catch(function () {});
+      }
+      tick();
+      const timer = setInterval(tick, 2500);
+      return function () {
+        alive = false;
+        clearInterval(timer);
+      };
+    },
+    [sessionId]
+  );
+  if (items.length === 0) return null;
+  const pendingCount = items.filter(function (item) { return item.status === 'pending'; }).length;
+  const recentCount = items.length - pendingCount;
+  const title = pendingCount > 0
+    ? t('steer.title').replace('{count}', String(pendingCount))
+    : t('steer.recentTitle').replace('{count}', String(recentCount));
+  return h(
+    'div',
+    { className: 'sb-steer' },
+    h('span', null, '📡'),
+    h('span', { style: { fontWeight: 600 } }, title),
+    h(
+      'button',
+      { type: 'button', className: 'sb-sent-toggle', style: { marginLeft: 'auto' }, onClick: function () { setOpen(!open); } },
+      open ? t('steer.hide') : t('steer.show')
+    ),
+    open
+      ? h(
+          'div',
+          { style: { flexBasis: '100%' } },
+          items.map(function (item) {
+            return h(
+              'div',
+              { key: item.id, className: 'sb-steer-item' },
+              h(
+                'div',
+                { style: { display: 'flex', gap: 6, alignItems: 'center', fontWeight: 600, marginBottom: 2 } },
+                t('bus.from').replace('{name}', item.senderName || item.sender),
+                sentChip(item.status === 'pending' ? t('steer.pendingLabel') : t('steer.recentLabel'), ''),
+                sentChip(t('sent.kind.' + item.kind), ''),
+                item.at ? h('span', { style: { marginLeft: 'auto', fontWeight: 400, opacity: 0.7 } }, clockOf(item.at)) : null
+              ),
+              item.body
+            );
+          })
+        )
+      : null
+  );
+}
+
+function ReceivedTail(props) {
+  const t = props.t;
+  const turn = props.turn;
+  const sessionId = props.sessionId;
+  const [entries, setEntries] = React.useState([]);
+  const [open, setOpen] = React.useState(false);
+  const turnNumber = turn && typeof turn.turn === 'number' ? turn.turn : null;
+  const closed = turn && turn.end !== undefined;
+  React.useEffect(
+    function () {
+      let alive = true;
+      if (turnNumber === null || !closed || typeof sessionId !== 'string') return function () {};
+      callAdmin('listReceived', { to: sessionId, turn: turnNumber })
+        .then(function (result) {
+          if (alive) setEntries(Array.isArray(result.entries) ? result.entries.slice().reverse() : []);
+        })
+        .catch(function () {
+          if (alive) setEntries([]);
+        });
+      return function () {
+        alive = false;
+      };
+    },
+    [sessionId, turnNumber, closed]
+  );
+  if (!closed || entries.length === 0) return null;
+  return h(
+    'section',
+    { className: 'sb-sent' },
+    h(
+      'div',
+      { className: 'sb-sent-head' },
+      h('span', { className: 'sb-sent-head-icon' }, '📥'),
+      h('span', null, t('recv.title').replace('{count}', String(entries.length))),
+      h(
+        'button',
+        { type: 'button', className: 'sb-sent-toggle', style: { marginLeft: 'auto' }, onClick: function () { setOpen(!open); } },
+        open ? t('sent.collapse') : t('sent.expand')
+      )
+    ),
+    entries.map(function (entry, index) {
+      const parsed = parseBusHeader(entry.text || '');
+      const body = parsed === null ? String(entry.text || '') : parsed.body;
+      const kind = parsed === null ? entry.kind : parsed.kind;
+      const key = String(entry.at || '') + ':' + String(entry.from || '') + ':' + index;
+      return h(
+        'div',
+        { key, className: 'sb-sent-row', style: { '--sb-kind': SENT_KIND_COLORS[kind] || SENT_KIND_COLORS.notice } },
+        h(
+          'div',
+          { className: 'sb-sent-meta' },
+          h('span', { className: 'sb-sent-to' }, '← ' + String(entry.fromName || entry.from || '')),
+          sentChip(t('recv.label'), ''),
+          sentChip(t('sent.kind.' + kind), ''),
+          h('span', { className: 'sb-sent-time' }, clockOf(entry.at))
+        ),
+        h('div', { className: 'sb-sent-text' + (open ? ' sb-sent-text-open' : '') }, body)
+      );
+    })
+  );
+}
+
 function SessionBusSettings(props) {
   const t = props.t;
   const [data, setData] = React.useState({ agents: [], waiting: [], settings: null, log: [] });
@@ -174,6 +659,17 @@ function SessionBusSettings(props) {
   const [now, setNow] = React.useState(Date.now());
   const [guard, setGuard] = React.useState({});
   const [confirmDelete, setConfirmDelete] = React.useState(null);
+  const [copiedPath, setCopiedPath] = React.useState('');
+
+  function copyPath(path) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(path);
+    } catch (_error) {}
+    setCopiedPath(path);
+    setTimeout(function () {
+      setCopiedPath('');
+    }, 1500);
+  }
 
   async function load() {
     setError(null);
@@ -224,18 +720,21 @@ function SessionBusSettings(props) {
 
   function startCreate() {
     setForm('create');
-    setDraft({ sessionId: '', name: '', role: '', knows: '', allowFrom: 'owner', enabled: true, subscriptions: '[]' });
+    setDraft({ sessionId: '', originalSessionId: '', name: '', role: '', knows: '', allowFrom: 'owner', enabled: true, allowAbort: false, memoryPool: '', subscriptions: '[]' });
   }
 
   function startEdit(agent) {
     setForm('edit');
     setDraft({
       sessionId: agent.sessionId,
+      originalSessionId: agent.sessionId,
       name: agent.name || '',
       role: agent.role || '',
       knows: (agent.knows || []).join(', '),
       allowFrom: (agent.allowFrom || ['owner']).join(', '),
       enabled: agent.enabled !== false,
+      allowAbort: agent.allowAbort === true,
+      memoryPool: agent.memoryPool || '',
       subscriptions: JSON.stringify(agent.subscriptions || [], null, 2)
     });
   }
@@ -273,10 +772,12 @@ function SessionBusSettings(props) {
       knows: parseList(draft.knows),
       allowFrom: parseList(draft.allowFrom),
       enabled: draft.enabled !== false,
+      allowAbort: draft.allowAbort === true,
+      memoryPool: String(draft.memoryPool || '').trim(),
       subscriptions
     };
     await run(async function () {
-      await callAdmin('saveAgent', { agent });
+      await callAdmin('saveAgent', { agent, originalSessionId: draft.originalSessionId || '' });
     });
     setForm(null);
   }
@@ -370,10 +871,12 @@ function SessionBusSettings(props) {
             'div',
             { style: { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'var(--dsw-alias-bg-layer-2)' } },
             field(t('agents.sessionId'), 'sessionId'),
+            draft.originalSessionId ? h('p', { style: MUTED }, t('agents.renameHint')) : null,
             field(t('agents.name'), 'name'),
             field(t('agents.role'), 'role'),
             field(t('agents.knows'), 'knows'),
             field(t('agents.allowFrom'), 'allowFrom'),
+            field(t('agents.memoryPool'), 'memoryPool'),
             field(t('agents.subscriptions'), 'subscriptions', { multiline: true }),
             h(
               'label',
@@ -388,6 +891,20 @@ function SessionBusSettings(props) {
                 }
               }),
               t('agents.enable')
+            ),
+            h(
+              'label',
+              { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, fontSize: 12 } },
+              h('input', {
+                type: 'checkbox',
+                checked: draft.allowAbort === true,
+                onChange: function (event) {
+                  const next = Object.assign({}, draft);
+                  next.allowAbort = event.target.checked;
+                  setDraft(next);
+                }
+              }),
+              t('agents.allowAbort')
             ),
             h(
               'div',
@@ -409,9 +926,19 @@ function SessionBusSettings(props) {
                 { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
                 h('strong', { style: { fontSize: 13 } }, agent.name || agent.sessionId),
                 h('span', { style: MUTED }, agent.sessionId),
-                h('span', { style: Object.assign({}, MUTED, { marginLeft: 'auto' }) }, (disabled ? t('agents.disabled') : t('agents.enabled')) + ' · ' + String(agent.waitingCount || 0) + ' ' + t('agents.waiting'))
+                h('span', { style: Object.assign({}, MUTED, { marginLeft: 'auto' }) }, (disabled ? t('agents.disabled') : t('agents.enabled')) + ' · ' + String(agent.pendingWaits || 0) + ' ' + t('agents.waiting') + ' · ' + String(agent.pendingMessages || 0) + ' ' + t('agents.pendingMessages'))
               ),
               agent.role ? h('div', { style: MUTED }, agent.role) : null,
+              h(
+                'div',
+                { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 11, color: 'var(--dsw-alias-label-secondary)' } },
+                h('span', null, t('agents.memoryPool')),
+                agent.memoryPool
+                  ? h('code', { title: agent.memoryPool, style: { wordBreak: 'break-all', fontFamily: 'monospace', color: 'var(--dsw-alias-label-primary)' } }, agent.memoryPool)
+                  : h('span', null, t('agents.memoryPoolUnset')),
+                agent.memoryPool ? h('button', { type: 'button', style: BUTTON, onClick: function () { copyPath(agent.memoryPool); } }, copiedPath === agent.memoryPool ? t('agents.copied') : t('agents.copy')) : null,
+                agent.memoryPool && agent.memoryPoolExists === false ? h('span', { style: { color: 'var(--dsw-alias-label-warning, #d97706)' } }, t('agents.memoryPoolMissing')) : null
+              ),
               h(
                 'div',
                 { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
@@ -554,6 +1081,35 @@ function SessionBusSettings(props) {
 function apply(ctx) {
   ctx.inject(['slots', 'locale'], (c) => {
     c.effect(() => c.locale.register(NS, { zh: ZH, en: EN }));
+    SLOTS = c.slots;
+    c.effect(function () {
+      if (typeof document === 'undefined') return function () {};
+      const style = document.createElement('style');
+      style.setAttribute('data-session-bus', 'sent-card');
+      style.textContent = SENT_CSS + '\n' + BUS_CSS;
+      document.head.appendChild(style);
+      return function () {
+        style.remove();
+      };
+    });
+    c.slots.inject('conversation.chat.node', () => {
+      return c.slots.register(
+        { name: 'conversation.chat.node', key: 'turn-trigger', locale: NS, priority: -10 },
+        BusTriggerView
+      );
+    });
+    c.slots.inject('conversation.chat.turnTail', () => {
+      return c.slots.register(
+        { name: 'conversation.chat.turnTail', id: 'session-bus-sent', order: 40, locale: NS },
+        SentTail
+      );
+    });
+    c.slots.inject('conversation.chat.turnTail', () => {
+      return c.slots.register(
+        { name: 'conversation.chat.turnTail', id: 'session-bus-received', order: 41, locale: NS },
+        ReceivedTail
+      );
+    });
     c.slots.inject('settings.section', () => {
       let label = 'Session bus';
       try {

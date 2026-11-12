@@ -3,7 +3,7 @@
 // P1: admin API (settings UI backend), 3s signal windows, startup sweep (stale 24h),
 //     dynamic limits, optional HMAC + timestamp replay protection.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +65,10 @@ function ensureStore() {
   if (!existsSync(WAITING_FILE)) writeFileSync(WAITING_FILE, JSON.stringify({ version: 1, waiting: [] }, null, 2) + '\n', 'utf8');
   if (!existsSync(DELIVERIES_FILE)) writeFileSync(DELIVERIES_FILE, '', 'utf8');
   if (!existsSync(SETTINGS_FILE)) writeFileSync(SETTINGS_FILE, JSON.stringify({ version: 1, ...DEFAULT_SETTINGS }, null, 2) + '\n', 'utf8');
+  // Generate the loopback token on first run so a fresh install works without a manual step.
+  try {
+    if (!existsSync(TOKEN_FILE)) writeFileSync(TOKEN_FILE, randomBytes(24).toString('hex') + '\n', { encoding: 'utf8', mode: 0o600 });
+  } catch (_error) {}
 }
 
 function readJson(file, fallback) {
