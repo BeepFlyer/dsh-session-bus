@@ -17,6 +17,7 @@ const WAITING_FILE = path.join(BUS_DIR, 'waiting.json');
 const DELIVERIES_FILE = path.join(BUS_DIR, 'deliveries.jsonl');
 const RECENT_DIR = path.join(BUS_DIR, 'state');
 const RECENT_FILE = path.join(RECENT_DIR, 'recent.jsonl');
+const REGISTRY_FILE = path.join(RECENT_DIR, 'registry.jsonl');
 const SETTINGS_FILE = path.join(BUS_DIR, 'settings.json');
 const TOKEN_FILE = path.join(here, 'token.txt');
 
@@ -62,6 +63,7 @@ function ensureStore() {
   mkdirSync(RECENT_DIR, { recursive: true });
   if (!existsSync(RECENT_FILE)) writeFileSync(RECENT_FILE, '', 'utf8');
   if (!existsSync(AGENTS_FILE)) writeFileSync(AGENTS_FILE, JSON.stringify({ version: 1, agents: [] }, null, 2) + '\n', 'utf8');
+  if (!existsSync(REGISTRY_FILE)) writeFileSync(REGISTRY_FILE, '', 'utf8');
   if (!existsSync(WAITING_FILE)) writeFileSync(WAITING_FILE, JSON.stringify({ version: 1, waiting: [] }, null, 2) + '\n', 'utf8');
   if (!existsSync(DELIVERIES_FILE)) writeFileSync(DELIVERIES_FILE, '', 'utf8');
   if (!existsSync(SETTINGS_FILE)) writeFileSync(SETTINGS_FILE, JSON.stringify({ version: 1, ...DEFAULT_SETTINGS }, null, 2) + '\n', 'utf8');
@@ -1413,6 +1415,135 @@ export function apply(ctx) {
       }
     };
 
+    const registerTool = {
+      name: 'bus_register',
+      description:
+        'Register or update a session record on the session bus. Omit sessionId to register or update YOURSELF (the calling agent id); pass sessionId to edit another session. Self edits may change every field. Editing another session requires reason and may change only name/role/knows/memoryPool by default; its permission fields (allowFrom, allowInterrupt, allowAbort, enabled) and renaming require force:true plus reason. Upsert semantics: provided fields merge into the record, a new id is created, and originalSessionId renames an existing record (its waits migrate). Every change is appended to state/registry.jsonl.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sessionId: { type: 'string', description: 'Target session id. Omit to edit the calling session itself.' },
+          originalSessionId: {
+            type: 'string',
+            description: 'Existing id to rename. Requires sessionId as the new id; renaming another session also requires force and reason.'
+          },
+          name: { type: 'string', description: 'Display name.' },
+          role: { type: 'string', description: 'One-line responsibility.' },
+          knows: { type: 'array', items: { type: 'string' }, description: 'Topics or assets this session understands.' },
+          memoryPool: { type: 'string', description: 'Path to this session memory directory.' },
+          allowFrom: { type: 'array', items: { type: 'string' }, description: 'Who may deliver to it; ["*"] means any peer.' },
+          allowInterrupt: { type: 'boolean', description: 'Accept steer deliveries (default true).' },
+          allowAbort: { type: 'boolean', description: 'Accept abort deliveries (default false).' },
+          enabled: { type: 'boolean', description: 'Keep the record active; false disables it.' },
+          reason: { type: 'string', description: 'Why this change is needed. Required when editing another session.' },
+          force: { type: 'boolean', description: 'Allow editing another session permission fields or renaming it. Requires reason.' }
+        },
+        additionalProperties: false
+      },
+      output,
+      execute: async (args, exec) => {
+        const caller = callerOf(exec);
+        if (caller === null) throw new Error('bus_register: no calling session');
+        const input = args && typeof args === 'object' ? args : {};
+        const requestedId = typeof input.sessionId === 'string' ? input.sessionId.trim() : '';
+        const targetId = requestedId === '' ? caller : requestedId;
+        const isSelf = targetId === caller;
+        const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+        const force = input.force === true;
+        const originalSessionId = typeof input.originalSessionId === 'string' ? input.originalSessionId.trim() : '';
+        if (originalSessionId !== '') {
+          if (requestedId === '') throw new Error('bus_register: sessionId (the new id) is required when originalSessionId is given');
+          if (originalSessionId !== caller && !force) throw new Error('bus_register: renaming another session requires force:true and reason');
+        }
+        if (!isSelf && reason === '') throw new Error('bus_register: reason is required when editing another session');
+
+        const provided = {};
+        const permissionFields = [];
+        if (Object.prototype.hasOwnProperty.call(input, 'name')) provided.name = String(input.name || '').trim();
+        if (Object.prototype.hasOwnProperty.call(input, 'role')) provided.role = String(input.role || '');
+        if (Object.prototype.hasOwnProperty.call(input, 'knows')) provided.knows = Array.isArray(input.knows) ? input.knows.map(String).filter(Boolean) : [];
+        if (Object.prototype.hasOwnProperty.call(input, 'memoryPool')) provided.memoryPool = String(input.memoryPool || '').trim();
+        if (Object.prototype.hasOwnProperty.call(input, 'allowFrom')) {
+          provided.allowFrom = Array.isArray(input.allowFrom) ? input.allowFrom.map(String).filter(Boolean) : [];
+          permissionFields.push('allowFrom');
+        }
+        if (Object.prototype.hasOwnProperty.call(input, 'allowInterrupt')) {
+          provided.allowInterrupt = input.allowInterrupt === true;
+          permissionFields.push('allowInterrupt');
+        }
+        if (Object.prototype.hasOwnProperty.call(input, 'allowAbort')) {
+          provided.allowAbort = input.allowAbort === true;
+          permissionFields.push('allowAbort');
+        }
+        if (Object.prototype.hasOwnProperty.call(input, 'enabled')) {
+          provided.enabled = input.enabled !== false;
+          permissionFields.push('enabled');
+        }
+        if (!isSelf && permissionFields.length > 0 && !force) {
+          throw new Error('bus_register: editing another session permission fields (' + permissionFields.join(', ') + ') requires force:true');
+        }
+        if (Object.keys(provided).length === 0 && originalSessionId === '') throw new Error('bus_register: no fields to write');
+
+        let outcome = 'updated';
+        let before = null;
+        let after = null;
+        await withStoreLock(() => {
+          const agents = readAgents().agents;
+          const original = originalSessionId !== '' ? originalSessionId : targetId;
+          const index = agents.findIndex((candidate) => candidate.sessionId === original);
+          if (originalSessionId !== '') {
+            if (index < 0) throw Object.assign(new Error('original sessionId not found: ' + originalSessionId), { code: 'not-found' });
+            if (agents.some((candidate, candidateIndex) => candidateIndex !== index && candidate.sessionId === targetId)) {
+              throw Object.assign(new Error('sessionId already exists: ' + targetId), { code: 'conflict' });
+            }
+            before = JSON.parse(JSON.stringify(agents[index]));
+            agents[index] = Object.assign({}, agents[index], provided, { sessionId: targetId, updatedAt: isoNow(new Date()) });
+            after = JSON.parse(JSON.stringify(agents[index]));
+            writeWaiting(readWaiting().waiting.map((item) => (item.sessionId === originalSessionId ? Object.assign({}, item, { sessionId: targetId }) : item)));
+            outcome = 'renamed';
+          } else if (index >= 0) {
+            before = JSON.parse(JSON.stringify(agents[index]));
+            agents[index] = Object.assign({}, agents[index], provided, { updatedAt: isoNow(new Date()) });
+            after = JSON.parse(JSON.stringify(agents[index]));
+          } else {
+            const record = Object.assign({ sessionId: targetId }, provided, { updatedAt: isoNow(new Date()) });
+            if (record.name === undefined || record.name === '') record.name = targetId;
+            if (record.role === undefined) record.role = '';
+            if (record.knows === undefined) record.knows = [];
+            if (record.memoryPool === undefined) record.memoryPool = '';
+            if (record.allowFrom === undefined) record.allowFrom = ['*'];
+            if (record.allowInterrupt === undefined) record.allowInterrupt = true;
+            if (record.allowAbort === undefined) record.allowAbort = false;
+            if (record.enabled === undefined) record.enabled = true;
+            agents.push(record);
+            after = JSON.parse(JSON.stringify(record));
+            outcome = 'created';
+          }
+          writeAgents(agents);
+          try {
+            appendFileSync(
+              REGISTRY_FILE,
+              JSON.stringify({
+                at: isoNow(new Date()),
+                by: caller,
+                target: targetId,
+                originalSessionId: originalSessionId === '' ? null : originalSessionId,
+                outcome,
+                fields: Object.keys(provided),
+                reason: reason === '' ? null : reason,
+                force,
+                before,
+                after
+              }) + '\n',
+              'utf8'
+            );
+          } catch (_error) {}
+        });
+        const updated = readAgents().agents.find((candidate) => candidate.sessionId === targetId) || null;
+        return { ok: true, outcome, by: caller, target: targetId, fields: Object.keys(provided), agent: updated };
+      }
+    };
+
     const listWaitingTool = {
       name: 'bus_list_waiting',
       description:
@@ -1467,6 +1598,7 @@ export function apply(ctx) {
       };
     });
     c.effect(() => c.tools.register(listAgentsTool));
+    c.effect(() => c.tools.register(registerTool));
     c.effect(() => c.tools.register(deliverTool));
     c.effect(() => c.tools.register(recentTool));
     c.effect(() => c.tools.register(waitTool));

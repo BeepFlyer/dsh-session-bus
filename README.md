@@ -8,7 +8,7 @@
 
 <img src="https://img.shields.io/badge/DeepSeek_Harness-社区插件-4d6bfe?style=flat-square" alt="DeepSeek Harness 社区插件">
 <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0-4d6bfe?style=flat-square" alt="支持 DSH 0.2.0+">
-<img src="https://img.shields.io/badge/新增工具-6_个-4d6bfe?style=flat-square" alt="新增 6 个工具">
+<img src="https://img.shields.io/badge/新增工具-7_个-4d6bfe?style=flat-square" alt="新增 7 个工具">
 <img src="https://img.shields.io/badge/license-MIT-555?style=flat-square" alt="MIT 许可证">
 
 **中文** · [English](README.en.md)
@@ -44,7 +44,7 @@ DSH 自带的“发起”通道各有边界：
 
 ## 特性
 
-- **注册表**：登记会话的 name / role / knows / allowFrom / memoryPool；`bus_peers` 查看谁在、状态、待处理数。
+- **注册表**：登记会话的 name / role / knows / allowFrom / memoryPool；`bus_peers` 查看谁在、状态、待处理数。`bus_register` 可自助登记（省略 `sessionId` 即自己），也可在受控条件下修改其他会话。
 - **三种投递模式**：`queue`（默认，排到下一轮）、`steer`（插到下一个步骤边界，不丢已完成工作）、`abort`（硬中止，默认关闭且必须带理由）。
 - **性质与合并**：`kind`（decision/blocker/handoff/notice）、`ref` 同一话题标记 `[旧] / [最新]`；queue 投递会合并进接收方同一发送方的待处理块，队列不会无限堆积。
 - **可查**：`bus_recent` 按 `blockId` 查自己发过的消息还在不在对方队列里（非 live 会话返回“未知”，不唤醒）。
@@ -87,6 +87,10 @@ dsh plugin --profile desktop add link:/path/to/dsh-session-bus
 
 > 用 `bus_peers` 看看谁在；给「七巧板」发一条 notice，告诉它接口字段改名了。
 
+**让新会话能被找到**：
+
+> 调 `bus_register` 把自己登记进去（`name` / `role` / `knows` / `memoryPool`）。
+
 **外部事件唤醒**（在目标会话里登记）：
 
 > 用 `bus_wait_for` 登记：我在等飞书图片，TTL 10 分钟。
@@ -97,6 +101,7 @@ dsh plugin --profile desktop add link:/path/to/dsh-session-bus
 
 | 工具 | 作用 |
 |---|---|
+| `bus_register` | 注册/修改会话记录。省略 `sessionId` 即改自己（自动用调用方 id）；改别人只能动 name/role/knows/memoryPool，权限字段（allowFrom/allowInterrupt/allowAbort/enabled）与改名需要 `force:true` + `reason`；`originalSessionId` 用于改 sessionId；每次改动写 `state/registry.jsonl` |
 | `bus_peers` | 列出已登记会话：状态、`pendingWaits`、`pendingMessages`、`memoryPool`、allowFrom/allowAbort |
 | `bus_deliver` | 投递消息。`mode`: `queue`（默认）/ `steer` / `abort`；`kind`: decision/blocker/handoff/notice；`ref`: 同话题标记；`reason`/`resumeHint` 带上下文；`hop` 用于唤醒链 |
 | `bus_recent` | 查自己发出的消息：`pending`（按 blockId 仍在对方队列）/`taken`/`unknown`（目标无 live agent，不唤醒） |

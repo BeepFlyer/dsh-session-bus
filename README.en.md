@@ -8,7 +8,7 @@
 
 <img src="https://img.shields.io/badge/DeepSeek_Harness-community_plugin-4d6bfe?style=flat-square" alt="DeepSeek Harness community plugin">
 <img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0-4d6bfe?style=flat-square" alt="DSH 0.2.0+">
-<img src="https://img.shields.io/badge/tools-6-4d6bfe?style=flat-square" alt="6 tools">
+<img src="https://img.shields.io/badge/tools-7-4d6bfe?style=flat-square" alt="7 tools">
 <img src="https://img.shields.io/badge/license-MIT-555?style=flat-square" alt="MIT license">
 
 [中文](README.md) · **English**
@@ -50,6 +50,7 @@ The loopback token is generated on first run (`token.txt`, git-ignored), or set 
 
 ## Tools
 
+- `bus_register` — register or update a session record: omit `sessionId` to edit yourself; editing another session's metadata needs `reason`, its permission fields and renaming need `force:true` + `reason`; every change is audited.
 - `bus_peers` — list registered sessions and their status.
 - `bus_deliver` — send a message (`mode`, `kind`, `ref`, `reason`, `resumeHint`).
 - `bus_recent` — pending / taken / unknown for messages this session sent.
