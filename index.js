@@ -668,7 +668,8 @@ export function apply(ctx) {
           kind: entry.kind,
           mode: effectiveMode,
           ref: typeof options.ref === 'string' ? options.ref : '',
-          summary: String(options.text || '').replace(/\s+/g, ' ').slice(0, 220)
+          summary: String(options.text || '').replace(/\s+/g, ' ').slice(0, 220),
+          text: String(options.text || '').slice(0, 4000)
         });
       } catch (error) {
         entry.reason = (error && error.code) || 'prompt-failed';
@@ -865,7 +866,8 @@ export function apply(ctx) {
               kind: record.kind || 'notice',
               mode: record.mode || 'queue',
               ref: record.ref || '',
-              summary: record.summary || ''
+              summary: record.summary || '',
+              text: record.text || record.summary || ''
             };
           });
         return { entries: rows };

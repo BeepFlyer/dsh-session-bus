@@ -20,7 +20,10 @@ const SENT_CSS = [
   '.sb-sent-mode-steer{color:#7c3aed;border-color:rgba(124,58,237,.35)}',
   '.sb-sent-mode-abort{color:#dc2626;border-color:rgba(220,38,38,.35)}',
   '.sb-sent-time{margin-left:auto}',
-  '.sb-sent-text{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);white-space:pre-wrap;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}'
+  '.sb-sent-text{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);white-space:pre-wrap;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}',
+  '.sb-sent-text-open{display:block;-webkit-line-clamp:unset;overflow:visible}',
+  '.sb-sent-toggle{margin-top:2px;padding:0;border:0;background:transparent;color:#6366f1;font-size:11px;cursor:pointer;text-align:left}',
+  '.sb-sent-toggle:hover{text-decoration:underline}'
 ].join('\n');
 
 const SENT_KIND_COLORS = {
@@ -64,6 +67,8 @@ const ZH = {
   'sent.kind.notice': '通知',
   'sent.mode.steer': '转向',
   'sent.mode.abort': '急停',
+  'sent.expand': '展开全文',
+  'sent.collapse': '收起',
   'agents.copy': '复制',
   'agents.renameHint': '改 sessionId 后，原会话不再接收总线消息；新 id 不能与已有会话重复。',
   'agents.copied': '已复制',
@@ -129,6 +134,8 @@ const EN = {
   'sent.kind.notice': 'notice',
   'sent.mode.steer': 'steer',
   'sent.mode.abort': 'abort',
+  'sent.expand': 'show full text',
+  'sent.collapse': 'collapse',
   'agents.copy': 'copy',
   'agents.renameHint': 'After changing the sessionId, the original session no longer receives bus messages; the new id must not collide with an existing one.',
   'agents.copied': 'copied',
@@ -245,6 +252,7 @@ function SentTail(props) {
   const turn = props.turn;
   const sessionId = props.sessionId;
   const [entries, setEntries] = React.useState([]);
+  const [expanded, setExpanded] = React.useState({});
   const turnNumber = turn && typeof turn.turn === 'number' ? turn.turn : null;
   const closed = turn && turn.end !== undefined;
   React.useEffect(
@@ -279,6 +287,9 @@ function SentTail(props) {
       const kind = entry.kind === 'decision' || entry.kind === 'blocker' || entry.kind === 'handoff' ? entry.kind : 'notice';
       const mode = entry.mode === 'steer' || entry.mode === 'abort' ? entry.mode : '';
       const kindColor = SENT_KIND_COLORS[kind] || SENT_KIND_COLORS.notice;
+      const body = summaryOf(entry.text || entry.summary || '');
+      const open = expanded[key] === true;
+      const canExpand = body.length > 160 || body.split('\n').length > 2;
       return h(
         'div',
         { key, className: 'sb-sent-row', style: { '--sb-kind': kindColor } },
@@ -290,7 +301,24 @@ function SentTail(props) {
           mode === '' ? null : sentChip(t('sent.mode.' + mode), 'sb-sent-mode-' + mode),
           h('span', { className: 'sb-sent-time' }, clockOf(entry.at))
         ),
-        h('div', { className: 'sb-sent-text' }, summaryOf(entry.summary))
+        h('div', { className: 'sb-sent-text' + (open ? ' sb-sent-text-open' : '') }, body),
+        canExpand
+          ? h(
+              'button',
+              {
+                type: 'button',
+                className: 'sb-sent-toggle',
+                onClick: function () {
+                  setExpanded(function (previous) {
+                    const next = Object.assign({}, previous);
+                    next[key] = !open;
+                    return next;
+                  });
+                }
+              },
+              open ? t('sent.collapse') : t('sent.expand')
+            )
+          : null
       );
     })
   );
