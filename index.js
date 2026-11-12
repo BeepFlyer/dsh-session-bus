@@ -846,6 +846,28 @@ export function apply(ctx) {
     }
 
     async function adminAction(action, payload) {
+      if (action === 'listReceived') {
+        const to = String(payload && payload.to ? payload.to : '').trim();
+        const turnValue = payload && payload.turn !== undefined && payload.turn !== null ? Number(payload.turn) : null;
+        const turn = Number.isFinite(turnValue) ? turnValue : null;
+        const agents = readAgents().agents;
+        const nameOf = (id) => {
+          const found = findAgent(agents, id);
+          return (found && found.name) || id;
+        };
+        const entries = readRecentRecords()
+          .filter((record) => record.to === to && record.mode === 'steer' && (turn === null || record.turn === turn))
+          .slice(-20)
+          .map((record) => ({
+            at: record.at,
+            turn: record.turn === undefined ? null : record.turn,
+            from: record.from,
+            fromName: nameOf(record.from),
+            kind: record.kind || 'notice',
+            text: record.text || record.summary || ''
+          }));
+        return { entries };
+      }
       if (action === 'listSteering') {
         const sessionId = String(payload && payload.sessionId ? payload.sessionId : '').trim();
         let live = null;
@@ -854,11 +876,43 @@ export function apply(ctx) {
         } catch (_error) {
           live = null;
         }
-        if (live === null) return { status: 'unknown', entries: [] };
-        const entries = live.inbox.nextStep
-          .filter((message) => message && message.source && message.source.kind === 'agent-message')
-          .map((message) => ({ id: message.id, senderSessionId: message.source.senderSessionId, content: message.content }));
-        return { status: 'live', entries };
+        const agents = readAgents().agents;
+        const nameOf = (id) => {
+          const found = findAgent(agents, id);
+          return (found && found.name) || id;
+        };
+        const pending = live === null
+          ? []
+          : live.inbox.nextStep
+              .filter((message) => message && message.source && message.source.kind === 'agent-message')
+              .map((message) => {
+                const first = Array.isArray(message.content) ? message.content[0] : null;
+                return {
+                  status: 'pending',
+                  id: message.id,
+                  senderSessionId: message.source.senderSessionId,
+                  senderName: nameOf(message.source.senderSessionId),
+                  text: first && first.type === 'text' ? first.text : ''
+                };
+              });
+        const pendingIds = new Set(pending.map((item) => item.id));
+        const now = Date.now();
+        const recent = readRecentRecords()
+          .filter((record) => record.to === sessionId && record.mode === 'steer' && !pendingIds.has(record.blockId))
+          .filter((record) => {
+            const at = Date.parse(record.at || '');
+            return Number.isFinite(at) && now - at <= 120 * 1000;
+          })
+          .map((record) => ({
+            status: 'recent',
+            id: record.id,
+            senderSessionId: record.from,
+            senderName: nameOf(record.from),
+            text: record.text || record.summary || '',
+            at: record.at,
+            kind: record.kind || 'notice'
+          }));
+        return { status: live === null ? 'unknown' : 'live', entries: pending.concat(recent) };
       }
       if (action === 'listRecent') {
         const from = String(payload && payload.from ? payload.from : '').trim();

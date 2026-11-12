@@ -30,6 +30,7 @@ const BUS_CSS = [
   '.sb-bus-row{display:flex;flex-direction:column;align-items:flex-start;gap:6px}',
   '.sb-bus-marker{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px}',
   '.sb-bus-marker span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.sb-bus-inserted{font-size:11px;color:#6366f1;padding:2px 2px 0}',
   '.sb-bus-body{max-width:100%;padding:9px 12px;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid #6366f1;border-radius:10px;background:var(--dsw-alias-bg-layer-1)}',
   '.sb-bus-actions{display:flex;align-items:center;gap:8px;height:28px}',
   '.sb-bus-time{padding-right:4px;color:var(--dsw-alias-label-tertiary);font-size:12px;white-space:nowrap}',
@@ -81,10 +82,16 @@ const ZH = {
   'sent.mode.steer': '转向',
   'sent.mode.abort': '急停',
   'sent.expand': '展开全文',
+  'recv.title': '本轮收到 {count} 条总线插入消息',
+  'recv.label': '插入',
   'bus.from': '来自会话「{name}」',
   'bus.copy': '复制',
   'bus.copied': '已复制',
   'steer.title': '收到 {count} 条总线消息，已插入当前轮',
+  'steer.recentTitle': '刚刚插入了 {count} 条总线消息',
+  'steer.pendingLabel': '插入中',
+  'bus.inserted': '已插入当前轮',
+  'steer.recentLabel': '已插入',
   'steer.show': '查看',
   'steer.hide': '收起',
   'sent.collapse': '收起',
@@ -154,10 +161,16 @@ const EN = {
   'sent.mode.steer': 'steer',
   'sent.mode.abort': 'abort',
   'sent.expand': 'show full text',
+  'recv.title': 'Received {count} bus insertion(s) this turn',
+  'recv.label': 'inserted',
   'bus.from': 'From session “{name}”',
   'bus.copy': 'copy',
   'bus.copied': 'copied',
   'steer.title': '{count} bus message(s) inserted into the running turn',
+  'steer.recentTitle': '{count} bus message(s) just inserted',
+  'steer.pendingLabel': 'pending',
+  'bus.inserted': 'inserted into current turn',
+  'steer.recentLabel': 'inserted',
   'steer.show': 'show',
   'steer.hide': 'hide',
   'sent.collapse': 'collapse',
@@ -351,6 +364,18 @@ function SentTail(props) {
 
 let SLOTS = null;
 
+function shippedEntry(key, self) {
+  let best;
+  try {
+    const entries = SLOTS && typeof SLOTS.entries === 'function' ? SLOTS.entries('conversation.chat.node') : [];
+    for (const entry of entries) {
+      if (!entry.options || entry.options.key !== key || entry.component === self) continue;
+      if (best === undefined || (entry.options.priority || 0) < (best.options.priority || 0)) best = entry;
+    }
+  } catch (_error) {}
+  return best;
+}
+
 function parseBusHeader(text) {
   if (typeof text !== 'string' || text.indexOf('[session-bus |') !== 0) return null;
   const newline = text.indexOf('\n');
@@ -384,7 +409,7 @@ function parseBusHeader(text) {
 }
 
 function BusBubble(props) {
-  const { relay, time, renderFactorySlot, loadImage, t } = props;
+  const { relay, time, renderFactorySlot, loadImage, t, inserted } = props;
   const [copied, setCopied] = React.useState(false);
   React.useEffect(
     function () {
@@ -431,6 +456,9 @@ function BusBubble(props) {
         interactive: true
       })
     ),
+    inserted === true
+      ? h('div', { className: 'sb-bus-inserted' }, '📥 ' + t('bus.inserted'))
+      : null,
     h(
       'div',
       { className: 'sb-bus-actions' },
@@ -470,6 +498,26 @@ function BusTriggerView(props) {
   return h(BusBubble, { relay, time: node.data && node.data.time, renderFactorySlot, loadImage, t });
 }
 
+function BusSteeringView(props) {
+  const { node, renderFactorySlot, loadImage, t } = props;
+  const relay = React.useMemo(
+    function () {
+      const data = node && node.data;
+      if (!data || !data.source || data.source.kind !== 'agent-message' || data.source.form !== 'relay') return null;
+      const content = Array.isArray(data.content) ? data.content : [];
+      const first = content[0];
+      if (!first || first.type !== 'text' || typeof first.text !== 'string') return null;
+      return parseBusHeader(first.text);
+    },
+    [node]
+  );
+  if (relay === null) {
+    const shipped = shippedEntry('steering', BusSteeringView);
+    return shipped === undefined ? null : h(shipped.component, props);
+  }
+  return h(BusBubble, { relay, time: node.data && node.data.time, renderFactorySlot, loadImage, t, inserted: true });
+}
+
 function SteeringNotice(props) {
   const t = props.t;
   const sessionId = props.sessionId;
@@ -486,9 +534,8 @@ function SteeringNotice(props) {
             const parsed = Array.isArray(result.entries)
               ? result.entries
                   .map(function (entry) {
-                    const block = Array.isArray(entry.content) ? entry.content[0] : null;
-                    const relay = block && block.type === 'text' ? parseBusHeader(block.text) : null;
-                    return relay === null ? null : Object.assign({ id: entry.id }, relay);
+                    const relay = typeof entry.text === 'string' ? parseBusHeader(entry.text) : null;
+                    return relay === null ? null : Object.assign({ id: entry.id, status: entry.status, senderName: entry.senderName, at: entry.at }, relay);
                   })
                   .filter(Boolean)
               : [];
@@ -506,11 +553,16 @@ function SteeringNotice(props) {
     [sessionId]
   );
   if (items.length === 0) return null;
+  const pendingCount = items.filter(function (item) { return item.status === 'pending'; }).length;
+  const recentCount = items.length - pendingCount;
+  const title = pendingCount > 0
+    ? t('steer.title').replace('{count}', String(pendingCount))
+    : t('steer.recentTitle').replace('{count}', String(recentCount));
   return h(
     'div',
     { className: 'sb-steer' },
     h('span', null, '📡'),
-    h('span', { style: { fontWeight: 600 } }, t('steer.title').replace('{count}', String(items.length))),
+    h('span', { style: { fontWeight: 600 } }, title),
     h(
       'button',
       { type: 'button', className: 'sb-sent-toggle', style: { marginLeft: 'auto' }, onClick: function () { setOpen(!open); } },
@@ -524,12 +576,81 @@ function SteeringNotice(props) {
             return h(
               'div',
               { key: item.id, className: 'sb-steer-item' },
-              h('div', { style: { fontWeight: 600, marginBottom: 2 } }, t('bus.from').replace('{name}', item.sender) + ' · ' + t('sent.kind.' + item.kind)),
+              h(
+                'div',
+                { style: { display: 'flex', gap: 6, alignItems: 'center', fontWeight: 600, marginBottom: 2 } },
+                t('bus.from').replace('{name}', item.senderName || item.sender),
+                sentChip(item.status === 'pending' ? t('steer.pendingLabel') : t('steer.recentLabel'), ''),
+                sentChip(t('sent.kind.' + item.kind), ''),
+                item.at ? h('span', { style: { marginLeft: 'auto', fontWeight: 400, opacity: 0.7 } }, clockOf(item.at)) : null
+              ),
               item.body
             );
           })
         )
       : null
+  );
+}
+
+function ReceivedTail(props) {
+  const t = props.t;
+  const turn = props.turn;
+  const sessionId = props.sessionId;
+  const [entries, setEntries] = React.useState([]);
+  const [open, setOpen] = React.useState(false);
+  const turnNumber = turn && typeof turn.turn === 'number' ? turn.turn : null;
+  const closed = turn && turn.end !== undefined;
+  React.useEffect(
+    function () {
+      let alive = true;
+      if (turnNumber === null || !closed || typeof sessionId !== 'string') return function () {};
+      callAdmin('listReceived', { to: sessionId, turn: turnNumber })
+        .then(function (result) {
+          if (alive) setEntries(Array.isArray(result.entries) ? result.entries.slice().reverse() : []);
+        })
+        .catch(function () {
+          if (alive) setEntries([]);
+        });
+      return function () {
+        alive = false;
+      };
+    },
+    [sessionId, turnNumber, closed]
+  );
+  if (!closed || entries.length === 0) return null;
+  return h(
+    'section',
+    { className: 'sb-sent' },
+    h(
+      'div',
+      { className: 'sb-sent-head' },
+      h('span', { className: 'sb-sent-head-icon' }, '📥'),
+      h('span', null, t('recv.title').replace('{count}', String(entries.length))),
+      h(
+        'button',
+        { type: 'button', className: 'sb-sent-toggle', style: { marginLeft: 'auto' }, onClick: function () { setOpen(!open); } },
+        open ? t('sent.collapse') : t('sent.expand')
+      )
+    ),
+    entries.map(function (entry, index) {
+      const parsed = parseBusHeader(entry.text || '');
+      const body = parsed === null ? String(entry.text || '') : parsed.body;
+      const kind = parsed === null ? entry.kind : parsed.kind;
+      const key = String(entry.at || '') + ':' + String(entry.from || '') + ':' + index;
+      return h(
+        'div',
+        { key, className: 'sb-sent-row', style: { '--sb-kind': SENT_KIND_COLORS[kind] || SENT_KIND_COLORS.notice } },
+        h(
+          'div',
+          { className: 'sb-sent-meta' },
+          h('span', { className: 'sb-sent-to' }, '← ' + String(entry.fromName || entry.from || '')),
+          sentChip(t('recv.label'), ''),
+          sentChip(t('sent.kind.' + kind), ''),
+          h('span', { className: 'sb-sent-time' }, clockOf(entry.at))
+        ),
+        h('div', { className: 'sb-sent-text' + (open ? ' sb-sent-text-open' : '') }, body)
+      );
+    })
   );
 }
 
@@ -983,16 +1104,16 @@ function apply(ctx) {
         BusTriggerView
       );
     });
-    c.slots.inject('conversation.input.dock', () => {
-      return c.slots.register(
-        { name: 'conversation.input.dock', id: 'session-bus-steering', order: 30, locale: NS },
-        SteeringNotice
-      );
-    });
     c.slots.inject('conversation.chat.turnTail', () => {
       return c.slots.register(
         { name: 'conversation.chat.turnTail', id: 'session-bus-sent', order: 40, locale: NS },
         SentTail
+      );
+    });
+    c.slots.inject('conversation.chat.turnTail', () => {
+      return c.slots.register(
+        { name: 'conversation.chat.turnTail', id: 'session-bus-received', order: 41, locale: NS },
+        ReceivedTail
       );
     });
     c.slots.inject('settings.section', () => {
