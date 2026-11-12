@@ -1,6 +1,23 @@
+<div align="center">
+
+<img src="icon.svg" width="88" alt="">
+
 # dsh-session-bus
 
-**Let DeepSeek Harness top-level sessions message each other.** A session can find a registered peer, deliver in `queue` / `steer` / `abort` mode, and both sides see cards in Chat.
+**Let DeepSeek Harness top-level sessions message each other.** Find a registered peer, deliver in `queue` / `steer` / `abort` mode, and both sides see cards in Chat.
+
+<img src="https://img.shields.io/badge/DeepSeek_Harness-community_plugin-4d6bfe?style=flat-square" alt="DeepSeek Harness community plugin">
+<img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0-4d6bfe?style=flat-square" alt="DSH 0.2.0+">
+<img src="https://img.shields.io/badge/tools-6-4d6bfe?style=flat-square" alt="6 tools">
+<img src="https://img.shields.io/badge/license-MIT-555?style=flat-square" alt="MIT license">
+
+[中文](README.md) · **English**
+
+[Features](#features) · [Install](#install) · [Tools](#tools) · [Limitations](#limitations)
+
+</div>
+
+DSH's built-in channels require a relationship: `send_message` works only between a direct parent and child agent, Agent Teams only inside one Team, and two ordinary sidebar sessions have no path. This plugin adds that path: an external event or another session delivers to a chosen, possibly-running top-level session, with sender attribution and the same tool for replying.
 
 ![Recipient bubble](docs/recipient-bubble.png)
 

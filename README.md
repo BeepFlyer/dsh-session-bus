@@ -1,6 +1,23 @@
+<div align="center">
+
+<img src="icon.svg" width="88" alt="">
+
 # dsh-session-bus
 
 **让 DSH 的顶层会话互相发消息** —— 一个会话可以找到另一个已登记的会话、按需要排队/插队/急停，消息带来源、性质与合并标记；发送方和接收方在 Chat 里都能看到对应卡片。
+
+<img src="https://img.shields.io/badge/DeepSeek_Harness-社区插件-4d6bfe?style=flat-square" alt="DeepSeek Harness 社区插件">
+<img src="https://img.shields.io/badge/DSH-%3E%3D0.2.0-4d6bfe?style=flat-square" alt="支持 DSH 0.2.0+">
+<img src="https://img.shields.io/badge/新增工具-6_个-4d6bfe?style=flat-square" alt="新增 6 个工具">
+<img src="https://img.shields.io/badge/license-MIT-555?style=flat-square" alt="MIT 许可证">
+
+**中文** · [English](README.en.md)
+
+[特性](#特性) · [安装](#安装) · [快速开始](#快速开始) · [工具](#给-agent-的工具) · [显示](#消息在两边长什么样) · [设置](#设置与配置) · [API](#http-api) · [已知限制](#已知限制)
+
+</div>
+
+DSH 自带的消息通道都要求双方有关系：`send_message` 只在直接父子 agent 之间传递，Agent Teams 只在同一个 Team 的成员之间传递，侧栏里两个普通会话之间没有路。本插件补上这条通道：**外部事件 → 匹配注册表 → 投递给指定的、可能正开着的顶层会话**，以及**会话之间直接投递**；收到的消息标明来自哪个会话，并且可以用同一个工具回复。
 
 ![接收方气泡](docs/recipient-bubble.png)
 <p align="center"><sub>接收方：左侧卡片「📡 来自会话「…」」+ 性质标签；正文复用官方用户气泡。</sub></p>
